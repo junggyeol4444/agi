@@ -1,0 +1,29 @@
+# Python-generated files
+__pycache__/
+*.py[cod]
+
+# Local environments and secrets
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+
+# Runtime memory, caches, and captures
+baby_memory.json
+urlhaus_cache.txt
+browser_view.png
+dict_cache/
+dict_cache_en/
+dict_cache_ja/
+sp10k_cache/
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+
+# Downloaded browser runtimes (contains files larger than GitHub's 100 MB limit)
+programs/browsers/
