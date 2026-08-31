@@ -61,6 +61,21 @@ class StandaloneBeliefSystemTests(unittest.TestCase):
         self.assertNotIn("토마토", host.isa)
         self.assertEqual(len(host.contextual_conclusions), 2)
 
+    def test_verification_queue_prioritizes_blocked_conflicts(self):
+        host = BeliefHost()
+        host.make_verification_plan("단순질문")
+        blocked = host.make_verification_plan("충돌질문")
+        blocked["status"] = "blocked"
+        blocked["hypotheses"] = [
+            {"support": 2.0, "oppose": 2.0, "need": 0.0},
+        ]
+        host.verification_tasks[blocked["id"]] = blocked
+
+        queue = host.verification_queue()
+
+        self.assertEqual(queue[0]["subject"], "충돌질문")
+        self.assertGreater(queue[0]["priority"], queue[1]["priority"])
+
 
 if __name__ == "__main__":
     unittest.main()

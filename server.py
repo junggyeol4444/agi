@@ -155,6 +155,10 @@ class Handler(BaseHTTPRequestHandler):
             context=data.get("context") if isinstance(data.get("context"),dict) else None
             b=baby.get_baby()
             self._json({"ok":True,"plan":b.make_verification_plan(word, relation, context)})
+        elif self.path=="/verification-queue":
+            # 해결되지 않은 검증 작업을 충돌·재검증 필요도 순으로 반환한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"queue":b.verification_queue(data.get("limit",10))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None
