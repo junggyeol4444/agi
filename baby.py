@@ -1126,7 +1126,8 @@ class Baby(EvidenceBeliefMixin):
         if thoughts:
             t = thoughts[0]["sentence"]
             return {"say": f"아, {ko_name}? {t}.{_extra}",
-                    "mind": f"아는 것 + 추론을 보탬 ({thoughts[0]['because']})"}
+                    "mind": f"아는 것 + 추론을 보탬 ({thoughts[0]['because']})",
+                    "beliefs_used": [self._belief_key(key, "is_a", self.isa[key])]}
         if why:
             return {"say": f"{ko_name}? 그건 {why[0]['because']} {why[0]['how']} 그래.{_extra}",
                     "mind": "아는 인과를 보탬"}
