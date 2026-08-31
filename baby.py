@@ -2,6 +2,7 @@ import random, json, os, time, threading
 from collections import defaultdict, deque
 from belief_system import EvidenceBeliefMixin
 from experience import ExperienceMemoryMixin
+from motivation import IntrinsicMotivationMixin
 from world_model import WorldModelMixin
 try:
     import vision
@@ -113,8 +114,9 @@ class World:
     """발달형 세상: 아기가 자랄수록(나이) 신호 채널이 늘어 상황이 풍부해진다.
        어릴 땐 단순(밝기만), 크면 소리·촉각·위치가 추가돼 배울 게 계속 생긴다.
        상황마다 좋은 행동이 정해져 있고(아기는 모름), 겪으며 스스로 배운다."""
-    def __init__(self, seed=7):
+    def __init__(self, seed=7, scripted_rewards=False):
         self.rng=random.Random(seed); self.i=0; self.dir=1
+        self.scripted_rewards=bool(scripted_rewards)
         self.best={}
         self.pending=[]   # 3단계: 지연 보상 큐
         self.objects={o:dict(langs) for o,langs in OBJECTS.items()}  # 사물->{언어:단어}
@@ -185,11 +187,13 @@ class World:
         self.last_audio = asig
         sig=tuple(parts)
         # 즉시 보상: 이 상황의 좋은 행동을 했나
-        immediate = 1.0 if (prev_sit is not None and action==self._best(prev_sit)) else 0.0
+        # 정답 행동표 보상은 비교 실험에서만 명시적으로 켠다. 기본 삶에서는 꺼져 있다.
+        immediate = (1.0 if (self.scripted_rewards and prev_sit is not None
+                              and action==self._best(prev_sit)) else 0.0)
         # 3단계(4살~): 일부 보상은 시간차로 온다.
         #   prev_sit이 "지연 상황"이고 거기서 reach를 했으면 2틱 뒤에 보상 예약.
         delayed = 0.0
-        if years >= 4.0:
+        if self.scripted_rewards and years >= 4.0:
             if prev_sit is not None and self._is_delay_cue(prev_sit) and action=="reach":
                 self.pending.append([2, 1.0])
             nxt=[]
@@ -513,7 +517,8 @@ def link_translations_into(world, eng_words, want_langs=None):
     return n
 
 
-class Baby(EvidenceBeliefMixin, ExperienceMemoryMixin, WorldModelMixin):
+class Baby(EvidenceBeliefMixin, ExperienceMemoryMixin, IntrinsicMotivationMixin,
+           WorldModelMixin):
     def __init__(self, mem_len=2):
         import threading as _th
         self.lock = _th.RLock()   # 자동 스레드와 메인이 동시에 안 건드리게
@@ -527,6 +532,7 @@ class Baby(EvidenceBeliefMixin, ExperienceMemoryMixin, WorldModelMixin):
         self.verification_tasks={}; self.verification_runs=[]
         self.contextual_conclusions={}
         self.events=[]; self.event_seq=0; self.transition_model={}
+        self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
         self.hist=[]
@@ -615,8 +621,18 @@ class Baby(EvidenceBeliefMixin, ExperienceMemoryMixin, WorldModelMixin):
         if k is not None: self.memory[k][actual]+=1
         self.hist.append(actual)
 
+        model_before = self.predict_effects(list(prev) if prev else None, action)
+        model_after = self.learn_transition(list(prev) if prev else None, action,
+                                            list(actual), reward)
+        motivation = self.intrinsic_motivation(
+            novelty=1.0 if first else 0.0,
+            uncertainty_before=model_before["uncertainty"],
+            uncertainty_after=model_after["uncertainty"],
+        )
+        learning_reward = float(reward) + motivation["total"]
+
         # 1단계 기분 = 예측안정 + 호기심 + (2단계)행동보상
-        feeling=0.5*stable + 0.2*(1.0 if first else 0.0) + 0.3*reward
+        feeling=0.5*stable + 0.2*(1.0 if first else 0.0) + 0.3*learning_reward
         self.mood=0.8*self.mood+0.2*feeling
         self.mood_sum+=self.mood
 
@@ -624,17 +640,17 @@ class Baby(EvidenceBeliefMixin, ExperienceMemoryMixin, WorldModelMixin):
         # 보상이 오면 최근 행동들에 시간차로 공을 나눈다(가까운 과거일수록 크게).
         if prev is not None:
             self.trace.append((prev, action))
-            self.reward_sum+=reward; self.reward_n+=1
-            self.recent_reward.append(reward)
-        if reward>0 and self.trace:
+            self.reward_sum+=learning_reward; self.reward_n+=1
+            self.recent_reward.append(learning_reward)
+        if learning_reward>0 and self.trace:
             for i,(s,a) in enumerate(reversed(self.trace)):
-                credit=reward*(0.6**i)          # i=0 방금행동, 멀수록 감쇠
+                credit=learning_reward*(0.6**i) # 외부 정답표가 아닌 경험 기반 동기도 포함
                 # 안전: 상태 dict에 행동 키가 없어도 터지지 않게(항상 모든 행동 보장)
                 if a not in self.qn[s]: self.qn[s][a]=0
                 if a not in self.q[s]:  self.q[s][a]=0.0
                 self.qn[s][a]+=1; n=self.qn[s][a]
                 self.q[s][a]=self.q[s][a]+(credit-self.q[s][a])/n
-            self._bin_sum+=reward; self._bin_n+=1
+            self._bin_sum+=learning_reward; self._bin_n+=1
             if self._bin_n>=self._bin_size:
                 yrs=round(self.lived/TICKS_PER_YEAR,2)
                 self.growth_curve.append([yrs, round(self._bin_sum/self._bin_n*100,1)])
@@ -696,21 +712,22 @@ class Baby(EvidenceBeliefMixin, ExperienceMemoryMixin, WorldModelMixin):
         self.record_event(
             "interaction", actor="self", action=action,
             obj=getattr(self.world, "last_object", None),
-            outcome={"state": list(actual), "reward": reward},
+            outcome={"state": list(actual), "external_reward": reward,
+                     "intrinsic_reward": motivation["total"]},
             context={"previous_state": list(prev) if prev else None},
             source="direct",
         )
-        self.learn_transition(list(prev) if prev else None, action,
-                              list(actual), reward)
         if status=="hit": self.last_feeling="안정"
         elif first: self.last_feeling="호기심"
-        elif reward>=1.0: self.last_feeling="잘했음"
+        elif learning_reward>0: self.last_feeling="배움"
         elif status=="miss": self.last_feeling="어긋남"
         else: self.last_feeling="덤덤"
 
         return {"t":self.lived,"seen":list(actual),
                 "guess":list(guess) if guess else None,"status":status,
                 "action":action,"reward":reward,
+                "external_reward":reward,"intrinsic_reward":motivation["total"],
+                "motivation":motivation,
                 "mood":round(self.mood,3),"feeling":self.last_feeling}
 
     def say(self, obj, lang="ko"):
@@ -2259,6 +2276,7 @@ class Baby(EvidenceBeliefMixin, ExperienceMemoryMixin, WorldModelMixin):
         "verification_runs",
         "contextual_conclusions",
         "events", "event_seq", "transition_model",
+        "drive_weights",
     ]
 
     def save(self):
