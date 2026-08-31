@@ -145,6 +145,12 @@ class Handler(BaseHTTPRequestHandler):
             word=(data.get("word") or "").strip()
             b=baby.get_baby()
             self._json({"ok":True,"thought":b.deliberate(word)})
+        elif self.path=="/verification-plan":
+            # 모순·불확실성을 실제로 확인할 다음 행동과 반증 목표로 바꾼다.
+            word=(data.get("word") or "").strip()
+            relation=(data.get("relation") or "is_a").strip()
+            b=baby.get_baby()
+            self._json({"ok":True,"plan":b.make_verification_plan(word, relation)})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None

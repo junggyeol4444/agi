@@ -141,8 +141,34 @@ class BeliefLearningTests(unittest.TestCase):
         self.assertNotIn("박쥐", self.b.isa)
         self.assertEqual(self.b.belief_revisions[-1]["status"], "suspended")
 
+    def test_deliberation_turns_uncertainty_into_verification_plan(self):
+        self.b.observe_belief("박쥐", "is_a", "조류", source="한사람")
+
+        thought = self.b.deliberate("박쥐")
+
+        plan = thought["verification_plan"]
+        self.assertEqual(thought["action"], "withhold")
+        self.assertEqual(plan["status"], "open")
+        self.assertEqual(plan["hypotheses"][0]["claim"], "조류")
+        self.assertGreater(plan["hypotheses"][0]["need"], 0)
+        self.assertTrue(any("반례" in action for action in plan["next_actions"]))
+
+    def test_verification_task_tracks_new_evidence_and_resolution(self):
+        self.b.make_verification_plan("펭귄")
+        self.b.observe_belief("펭귄", "is_a", "조류", source="관찰-A")
+        task = self.b.verification_tasks[self.b._verification_key("펭귄", "is_a")]
+        self.assertEqual(task["evidence_seen"], 1)
+
+        self.b.observe_belief("펭귄", "is_a", "조류", source="관찰-B")
+        result = self.b.verify_belief("펭귄")
+
+        self.assertTrue(result["verified"])
+        self.assertEqual(task["status"], "resolved")
+        self.assertEqual(task["conclusion"], "조류")
+
     def test_belief_and_revision_survive_save_load(self):
         self.b.isa["펭귄"] = "어류"
+        self.b.make_verification_plan("펭귄")
         for source in ("관찰-A", "관찰-B"):
             self.b.learn_isa("펭귄", "펭귄은 조류이다.", source=source)
         self.b.verify_belief("펭귄")
@@ -154,6 +180,8 @@ class BeliefLearningTests(unittest.TestCase):
                 self.assertTrue(restored.load())
         self.assertEqual(restored.isa["펭귄"], "조류")
         self.assertEqual(restored.belief_revisions[-1]["from"], "어류")
+        task = restored.verification_tasks[restored._verification_key("펭귄", "is_a")]
+        self.assertEqual(task["status"], "resolved")
 
 
 if __name__ == "__main__":
