@@ -45,6 +45,27 @@ class BeliefLearningTests(unittest.TestCase):
         self.assertEqual(len(claim["support_sources"]), 2)
         self.assertEqual(claim["support_groups"], ["wire-story-42"])
 
+    def test_source_correction_retracts_its_old_candidate(self):
+        self.b.learn_isa("고래", "고래는 어류이다.", source="교사-A")
+        self.b.learn_isa("고래", "고래는 포유류이다.", source="교사-A")
+
+        candidates = {c["object"]: c for c in self.b.belief_about("고래")}
+
+        self.assertEqual(candidates["어류"]["support"], 0.0)
+        self.assertEqual(candidates["어류"]["oppose"], 1.0)
+        self.assertEqual(candidates["포유류"]["support"], 1.0)
+
+    def test_replaced_observation_keeps_audit_history(self):
+        self.b.observe_belief("고래", "is_a", "어류", source="교사-A",
+                              evidence="처음 주장")
+        self.b.observe_belief("고래", "is_a", "어류", source="교사-A",
+                              supports=False, evidence="나중에 철회")
+
+        raw = self.b.beliefs[self.b._belief_key("고래", "is_a", "어류")]
+
+        self.assertEqual(raw["observations"][0]["evidence"], "나중에 철회")
+        self.assertEqual(raw["observation_history"][0]["evidence"], "처음 주장")
+
     def test_unverified_statement_is_not_available_for_reasoning(self):
         self.b.learn_isa("펭귄", "펭귄은 조류이다.", source="한사람")
         self.assertNotIn("펭귄", self.b.isa)

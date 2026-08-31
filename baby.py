@@ -1944,7 +1944,12 @@ class Baby:
             "at": self.lived,
         }
         # 같은 근거 단위가 다시 들어오면 최신 관찰로 교체한다. 반복 횟수로 진실을
-        # 부풀리지 않으면서, 그 출처가 정정한 것은 반영한다.
+        # 부풀리지 않으면서, 그 출처가 정정한 것은 반영한다. 교체 전 내용은 감사
+        # 이력에 남겨 출처가 언제 말을 바꿨는지도 잃지 않는다.
+        replaced = [o for o in b["observations"] if o.get("id") == unit]
+        if replaced:
+            b.setdefault("observation_history", []).extend(replaced)
+            b["observation_history"] = b["observation_history"][-100:]
         b["observations"] = [o for o in b["observations"] if o.get("id") != unit]
         b["observations"].append(observation)
         b["observations"] = b["observations"][-100:]
@@ -1964,6 +1969,49 @@ class Baby:
         else:
             b["status"] = "unverified"
         return b
+
+    def revise_belief_observation(self, subject, relation, obj, source=None,
+                                  evidence=None, kind="testimony", reliability=1.0,
+                                  context=None, evidence_id=None,
+                                  independence_group=None):
+        """한 근거 계통이 이전 후보를 철회하고 새 후보로 정정한 것을 기록한다.
+
+        새 주장만 추가하면 이전 주장이 계속 지지된 것처럼 남는다. 단일 값 관계에서
+        동일 출처가 후보를 바꾸면 예전 관찰은 반대 관찰로 전환하고 변경 이력을 보존한다.
+        """
+        source = (source or "unknown").strip()
+        group = self._evidence_independence_group(
+            source, kind, evidence_id, independence_group)
+        retracted = []
+        for belief in (getattr(self, "beliefs", {}) or {}).values():
+            if (belief.get("subject") != subject or belief.get("relation") != relation
+                    or belief.get("object") == obj):
+                continue
+            for old_observation in list(belief.get("observations", [])):
+                old_group = old_observation.get("independence_group")
+                if old_group is None:
+                    old_group = self._evidence_independence_group(
+                        old_observation.get("source", "unknown"),
+                        old_observation.get("kind", "testimony"),
+                        old_observation.get("id"))
+                if old_group == group and old_observation.get("supports"):
+                    self.observe_belief(
+                        subject, relation, belief.get("object"), source=source,
+                        supports=False,
+                        evidence=f"이전 주장을 철회함: {evidence or obj}",
+                        kind=kind, reliability=reliability, context=context,
+                        evidence_id=old_observation.get("id"),
+                        independence_group=group,
+                    )
+                    retracted.append(belief.get("object"))
+                    break
+        current = self.observe_belief(
+            subject, relation, obj, source=source, supports=True,
+            evidence=evidence, kind=kind, reliability=reliability,
+            context=context, evidence_id=evidence_id,
+            independence_group=group,
+        )
+        return {"belief": current, "retracted": retracted}
 
     def _evidence_independence_group(self, source, kind, evidence_id=None,
                                      independence_group=None):
@@ -2306,8 +2354,8 @@ class Baby:
         b = self._extract_isa(word, summary)
         if not b or b == word:
             return b
-        self.observe_belief(word, "is_a", b, source=source,
-                            supports=True, evidence=summary)
+        self.revise_belief_observation(word, "is_a", b, source=source,
+                                       evidence=summary)
         old = self.isa.get(word)
         if old is None:
             # 처음 들은 주장은 후보로만 보존한다. 검증 전에는 추론용 isa에 넣지 않는다.
