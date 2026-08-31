@@ -1994,18 +1994,38 @@ class Baby:
         이전 결론, 새 결론, 사용한 근거를 수정 장부에 남긴다.
         """
         candidates = self.belief_about(subject, relation)
+        old = self.isa.get(subject) if relation == "is_a" else None
         ranked = []
         for b in candidates:
             score = b["support"] - b["oppose"]
             if b["support"] >= min_evidence and score >= 1.0 and b["confidence"] >= 0.6:
                 ranked.append((score, b["support"], b))
         if not ranked:
+            # 한 번 채택한 결론도 영구 고정하지 않는다. 그 결론 자체에 반대 근거가
+            # 지지만큼 쌓이면 추론 그래프에서 빼고 '모름' 상태로 되돌린다.
+            current = next((b for b in candidates if b.get("object") == old), None)
+            if old is not None and current and current["oppose"] >= current["support"]:
+                revision = self._suspend_belief(
+                    subject, relation, old,
+                    "반대 근거가 기존 지지 이상으로 쌓여 결론을 보류함",
+                    current,
+                )
+                return {"subject": subject, "verified": False,
+                        "reason": "기존 결론을 반증해 판단 보류", "suspended": True,
+                        "previous": old, "revision": revision, "candidates": candidates}
             return {"subject": subject, "verified": False, "reason": "독립 근거 부족", "candidates": candidates}
         ranked.sort(key=lambda x: (x[0], x[1]), reverse=True)
         if len(ranked) > 1 and ranked[0][0] - ranked[1][0] < 0.75:
+            # 서로 충분히 강한 결론이 맞서면 예전 결론을 계속 사실처럼 사용하지 않는다.
+            revision = None
+            if old is not None:
+                revision = self._suspend_belief(
+                    subject, relation, old,
+                    "서로 양립할 수 없는 후보의 근거가 비슷해 결론을 보류함",
+                    ranked[0][2],
+                )
             return {"subject": subject, "verified": False, "reason": "근거가 맞서 결론 보류", "candidates": candidates}
         winner = ranked[0][2]
-        old = self.isa.get(subject) if relation == "is_a" else None
         new = winner["object"]
         if relation == "is_a":
             self.isa[subject] = new
@@ -2032,6 +2052,28 @@ class Baby:
                 "support_sources": list(winner["support_sources"]),
                 "oppose_sources": list(winner["oppose_sources"]),
                 "confidence": winner["confidence"]}
+
+    def _suspend_belief(self, subject, relation, old, reason, evidence=None):
+        """반증되거나 해결되지 않은 결론을 추론용 지식에서 제거한다."""
+        if relation == "is_a" and self.isa.get(subject) == old:
+            self.isa.pop(subject, None)
+        if not isinstance(getattr(self, "belief_revisions", None), list):
+            self.belief_revisions = []
+        revision = {
+            "subject": subject, "relation": relation, "from": old, "to": None,
+            "at": self.lived,
+            "support_sources": list((evidence or {}).get("support_sources", [])),
+            "oppose_sources": list((evidence or {}).get("oppose_sources", [])),
+            "reason": reason, "status": "suspended",
+        }
+        self.belief_revisions.append(revision)
+        original = self.beliefs.get(self._belief_key(subject, relation, old))
+        if original is not None:
+            original["status"] = "disputed"
+        self.doubts.setdefault(subject, [])
+        self._invalidate_answers(self._belief_key(subject, relation, old), None,
+                                 revision=revision)
+        return revision
 
     def deliberate(self, subject, relation="is_a"):
         """무조건 예측하지 않고 현재 상태에 맞는 사고 행동을 고른다.
@@ -2140,11 +2182,17 @@ class Baby:
         for c in corrections[:3]:
             subject = c.get("subject") or "그 내용"
             previous = c.get("previous") or "이전 결론"
-            replacement = c.get("replacement") or "새 결론"
-            notices.append(
-                f"정정할게. 전에 {subject}에 대해 {self._j(previous,'이라고','라고')} "
-                f"말했지만, 독립된 근거를 다시 확인해 {self._j(replacement,'이라고','라고')} 고쳤어."
-            )
+            replacement = c.get("replacement")
+            if replacement is None:
+                notices.append(
+                    f"정정할게. 전에 {subject}에 대해 {self._j(previous,'이라고','라고')} "
+                    "말했지만, 반대 근거를 확인해 그 결론을 취소하고 판단을 보류했어."
+                )
+            else:
+                notices.append(
+                    f"정정할게. 전에 {subject}에 대해 {self._j(previous,'이라고','라고')} "
+                    f"말했지만, 독립된 근거를 다시 확인해 {self._j(replacement,'이라고','라고')} 고쳤어."
+                )
         self.acknowledge_corrections(corrections[:3])
         updated = dict(result or {})
         current = updated.get("say") or ""

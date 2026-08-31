@@ -98,6 +98,49 @@ class BeliefLearningTests(unittest.TestCase):
         self.b.verify_belief("펭귄")
         self.assertEqual(len(self.b.pending_corrections()), 1)
 
+    def test_counterevidence_suspends_an_accepted_belief(self):
+        for source in ("관찰-A", "관찰-B"):
+            self.b.observe_belief("백조", "is_a", "흰새", source=source)
+        self.assertTrue(self.b.verify_belief("백조")["verified"])
+        self.b._record_answer("백조는 뭐야?", {"say": "백조는 흰새야."})
+
+        for source in ("검증-A", "검증-B"):
+            self.b.observe_belief("백조", "is_a", "흰새", source=source,
+                                  supports=False)
+        result = self.b.verify_belief("백조")
+
+        self.assertFalse(result["verified"])
+        self.assertTrue(result["suspended"])
+        self.assertNotIn("백조", self.b.isa)
+        self.assertIsNone(self.b.belief_revisions[-1]["to"])
+        correction = self.b.pending_corrections("백조")[0]
+        self.assertIsNone(correction["replacement"])
+
+    def test_suspended_belief_is_admitted_as_uncertain(self):
+        self.b.isa["백조"] = "흰새"
+        self.b._record_answer("백조는 뭐야?", {"say": "백조는 흰새야."})
+        for source in ("검증-A", "검증-B"):
+            self.b.observe_belief("백조", "is_a", "흰새", source=source,
+                                  supports=False)
+        self.b.verify_belief("백조")
+
+        response = self.b.respond("안녕")
+        self.assertIn("그 결론을 취소하고 판단을 보류했어", response["say"])
+
+    def test_equally_supported_conflict_removes_old_answer_from_reasoning(self):
+        self.b.isa["박쥐"] = "조류"
+        for source in ("새-A", "새-B"):
+            self.b.observe_belief("박쥐", "is_a", "조류", source=source)
+        for source in ("포유-A", "포유-B"):
+            self.b.observe_belief("박쥐", "is_a", "포유류", source=source)
+
+        result = self.b.verify_belief("박쥐")
+
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["reason"], "근거가 맞서 결론 보류")
+        self.assertNotIn("박쥐", self.b.isa)
+        self.assertEqual(self.b.belief_revisions[-1]["status"], "suspended")
+
     def test_belief_and_revision_survive_save_load(self):
         self.b.isa["펭귄"] = "어류"
         for source in ("관찰-A", "관찰-B"):
