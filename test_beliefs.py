@@ -22,6 +22,29 @@ class BeliefLearningTests(unittest.TestCase):
         self.assertEqual(claim["support"], 1.0)
         self.assertFalse(self.b.verify_belief("펭귄")["verified"])
 
+    def test_different_urls_from_same_publisher_are_one_evidence_group(self):
+        self.b.observe_belief("펭귄", "is_a", "조류",
+                              source="https://news.example/a")
+        self.b.observe_belief("펭귄", "is_a", "조류",
+                              source="https://www.news.example/copied")
+
+        claim = self.b.belief_about("펭귄")[0]
+
+        self.assertEqual(claim["support"], 1.0)
+        self.assertEqual(claim["support_groups"], ["publisher:news.example"])
+        self.assertFalse(self.b.verify_belief("펭귄")["verified"])
+
+    def test_explicit_independence_group_deduplicates_syndicated_sources(self):
+        for source in ("신문-A", "포털에 복제된 신문-A 기사"):
+            self.b.observe_belief("펭귄", "is_a", "조류", source=source,
+                                  independence_group="wire-story-42")
+
+        claim = self.b.belief_about("펭귄")[0]
+
+        self.assertEqual(claim["support"], 1.0)
+        self.assertEqual(len(claim["support_sources"]), 2)
+        self.assertEqual(claim["support_groups"], ["wire-story-42"])
+
     def test_unverified_statement_is_not_available_for_reasoning(self):
         self.b.learn_isa("펭귄", "펭귄은 조류이다.", source="한사람")
         self.assertNotIn("펭귄", self.b.isa)

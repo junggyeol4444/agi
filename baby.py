@@ -1911,7 +1911,7 @@ class Baby:
 
     def observe_belief(self, subject, relation, obj, source=None, supports=True,
                        evidence=None, kind="testimony", reliability=1.0,
-                       context=None, evidence_id=None):
+                       context=None, evidence_id=None, independence_group=None):
         """주장을 참/거짓으로 확정하지 않고 한 번의 근거로 기록한다.
 
         출처 하나가 같은 말을 반복해도 독립 근거 하나로 센다. 원문 기록은 남겨
@@ -1921,6 +1921,8 @@ class Baby:
             self.beliefs = {}
         source = (source or "unknown").strip()
         kind = kind if kind in self._EVIDENCE_WEIGHT else "testimony"
+        independence_group = self._evidence_independence_group(
+            source, kind, evidence_id, independence_group)
         try: reliability = max(0.0, min(1.0, float(reliability)))
         except (TypeError, ValueError): reliability = 0.5
         key = self._belief_key(subject, relation, obj)
@@ -1936,6 +1938,7 @@ class Baby:
         observation = {
             "id": unit,
             "source": source, "supports": bool(supports),
+            "independence_group": independence_group,
             "kind": kind, "reliability": reliability,
             "context": context or {}, "evidence": (evidence or "")[:500],
             "at": self.lived,
@@ -1962,17 +1965,44 @@ class Baby:
             b["status"] = "unverified"
         return b
 
+    def _evidence_independence_group(self, source, kind, evidence_id=None,
+                                     independence_group=None):
+        """복제된 증언을 독립 근거로 세지 않기 위한 근거 계통 식별자."""
+        if independence_group:
+            return str(independence_group).strip()
+        # 직접 관찰과 실험은 호출자가 서로 다른 실행 ID를 준 경우에만 독립이다.
+        if kind in ("direct", "experiment"):
+            return str(evidence_id or f"{kind}:{source}")
+        # 같은 웹사이트의 URL이 달라도 기본적으로 같은 출판 계통으로 본다.
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(source)
+            if parsed.scheme in ("http", "https") and parsed.hostname:
+                host = parsed.hostname.lower().removeprefix("www.")
+                return f"publisher:{host}"
+        except (TypeError, ValueError):
+            pass
+        return f"source:{source}"
+
     def _belief_evidence_totals(self, belief):
         """근거의 종류와 신뢰도를 반영한 지지/반박량. 문장 확률과 무관하다."""
-        support = oppose = 0.0
+        # 같은 원문을 복제한 기사나 같은 출판사의 여러 URL은 가장 강한 하나만 센다.
+        # 출처 문자열 개수가 아니라 독립된 증거 계통 개수를 평가한다.
+        support_groups, oppose_groups = {}, {}
         support_sources, oppose_sources = set(), set()
         for o in belief.get("observations", []):
             weight = self._EVIDENCE_WEIGHT.get(o.get("kind"), 0.0)
             weight *= max(0.0, min(1.0, float(o.get("reliability", 0.5))))
+            group = o.get("independence_group") or self._evidence_independence_group(
+                o.get("source", "unknown"), o.get("kind", "testimony"), o.get("id"))
             if o.get("supports"):
-                support += weight; support_sources.add(o.get("source", "unknown"))
+                support_groups[group] = max(weight, support_groups.get(group, 0.0))
+                support_sources.add(o.get("source", "unknown"))
             else:
-                oppose += weight; oppose_sources.add(o.get("source", "unknown"))
+                oppose_groups[group] = max(weight, oppose_groups.get(group, 0.0))
+                oppose_sources.add(o.get("source", "unknown"))
+        support = sum(support_groups.values())
+        oppose = sum(oppose_groups.values())
         # 이전 버전 저장 파일을 읽을 때 출처 장부를 잃지 않는다.
         if not belief.get("observations"):
             support_sources.update(belief.get("support_sources", []))
@@ -1980,7 +2010,9 @@ class Baby:
             support += len(support_sources); oppose += len(oppose_sources)
         return {"support": round(support, 3), "oppose": round(oppose, 3),
                 "support_sources": sorted(support_sources),
-                "oppose_sources": sorted(oppose_sources)}
+                "oppose_sources": sorted(oppose_sources),
+                "support_groups": sorted(support_groups),
+                "oppose_groups": sorted(oppose_groups)}
 
     def belief_about(self, subject, relation="is_a"):
         """대상에 관한 후보와 근거를 반환한다. 문장 생성 확률은 사용하지 않는다."""
@@ -2132,6 +2164,8 @@ class Baby:
                 "claim": candidate.get("object"),
                 "support": candidate.get("support", 0.0),
                 "oppose": candidate.get("oppose", 0.0),
+                "independent_support_groups": len(candidate.get("support_groups", [])),
+                "independent_oppose_groups": len(candidate.get("oppose_groups", [])),
                 "need": max(0.0, round(2.0 - candidate.get("support", 0.0), 3)),
                 "disconfirm": f"{subject}가 {candidate.get('object')}가 아닌 독립 사례 찾기",
             })
