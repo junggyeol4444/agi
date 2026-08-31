@@ -522,7 +522,8 @@ class Baby(EvidenceBeliefMixin):
         # 주장 자체와 그 근거를 분리해서 기억한다. 같은 말을 많이 들었다고 바로
         # 참으로 만들지 않고, 출처별 지지/반박과 수정 이력을 보존한다.
         self.beliefs={}; self.belief_revisions=[]; self.answer_history=[]
-        self.verification_tasks={}; self.contextual_conclusions={}
+        self.verification_tasks={}; self.verification_runs=[]
+        self.contextual_conclusions={}
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
         self.hist=[]
@@ -2112,7 +2113,8 @@ class Baby(EvidenceBeliefMixin):
     def _search_and_learn(self, thing):
         """모르는 것 하나를 크롤링·번역으로 찾아 환경에 새 사물로 추가하고 학습.
            크롤링(설명·연결단어·사진) + 번역. 못 찾으면 None."""
-        result = {"learned_as": thing, "langs": {}, "summary": None, "links": [], "image": None, "error": None, "source": None}
+        result = {"learned_as": thing, "langs": {}, "summary": None, "links": [],
+                  "image": None, "error": None, "source": None, "sources": []}
         got = False
         # 1) 크롤링/검색: 진짜는 네 컴퓨터.
         try:
@@ -2128,6 +2130,7 @@ class Baby(EvidenceBeliefMixin):
                     sites = res.get("sites") or []
                     if sites:
                         urls = [s.get("url") for s in sites if s.get("url")]
+                        result["sources"] = urls
                         result["source"] = "🌐 인터넷 검색 — " + ", ".join(urls[:2]) if urls else "🌐 인터넷 검색"
                     else:
                         result["source"] = "🌐 인터넷 검색"
@@ -2181,6 +2184,22 @@ class Baby(EvidenceBeliefMixin):
             self.world.nouns.append(obj)
         return result
 
+    def _verification_evidence_provider(self, task):
+        """Acquire web evidence for one queued classification task."""
+        info = self._search_and_learn(task["subject"]) or {}
+        summary = (info.get("summary") or "").strip()
+        candidate = self._extract_isa(task["subject"], summary) if summary else None
+        if not candidate:
+            return []
+        sources = info.get("sources") or [info.get("source") or "unknown"]
+        return [{"object": candidate, "source": source, "evidence": summary,
+                 "context": task.get("context") or {}} for source in sources]
+
+    def run_verification(self, limit=1):
+        """Run prioritized verification tasks using the configured acquisition tools."""
+        with self.lock:
+            return self.execute_verification(self._verification_evidence_provider, limit)
+
     def live(self, steps, injected=None):
         with self.lock:
             evs=[]
@@ -2224,6 +2243,7 @@ class Baby(EvidenceBeliefMixin):
         "grounding", "metaphors", "talk_topics", "partner_said", "first_words",
         "goal_log",
         "beliefs", "belief_revisions", "answer_history", "verification_tasks",
+        "verification_runs",
         "contextual_conclusions",
     ]
 

@@ -159,6 +159,11 @@ class Handler(BaseHTTPRequestHandler):
             # 해결되지 않은 검증 작업을 충돌·재검증 필요도 순으로 반환한다.
             b=baby.get_baby()
             self._json({"ok":True,"queue":b.verification_queue(data.get("limit",10))})
+        elif self.path=="/verification-run":
+            # 대기열의 우선 과제를 실제 조사하고 근거 장부에 넣은 뒤 다시 검증한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"runs":b.run_verification(data.get("limit",1)),
+                        "queue":b.verification_queue(10)})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None

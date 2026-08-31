@@ -8,10 +8,12 @@ surface documented on the class, while all belief state transitions live here.
 import json
 
 from answer_audit import AnswerAuditMixin
+from verification_executor import VerificationExecutorMixin
 from verification_workflow import VerificationWorkflowMixin
 
 
-class EvidenceBeliefMixin(AnswerAuditMixin, VerificationWorkflowMixin):
+class EvidenceBeliefMixin(AnswerAuditMixin, VerificationWorkflowMixin,
+                          VerificationExecutorMixin):
     """Belief subsystem mixed into ``Baby``.
 
     The host supplies ``isa``, ``doubts``, ``lived``, ``_wonder()`` and ``_j()``.
