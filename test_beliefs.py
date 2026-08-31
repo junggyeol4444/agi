@@ -69,6 +69,34 @@ class BeliefLearningTests(unittest.TestCase):
         answer = self.b.answer_history[-1]
         self.assertTrue(answer["invalidated"])
         self.assertEqual(answer["correction"]["replacement"], "조류")
+        self.assertEqual(answer["correction"]["subject"], "펭귄")
+        self.assertFalse(answer["correction"]["delivered"])
+
+    def test_next_response_admits_a_pending_correction_once(self):
+        self.b.isa["펭귄"] = "어류"
+        self.b._record_answer("펭귄은 뭐야?", {"say": "펭귄은 어류야."})
+        for source in ("관찰-A", "관찰-B"):
+            self.b.learn_isa("펭귄", "펭귄은 조류이다.", source=source)
+        self.b.verify_belief("펭귄")
+
+        first = self.b.respond("안녕")
+        self.assertIn("정정할게", first["say"])
+        self.assertIn("어류", first["say"])
+        self.assertIn("조류", first["say"])
+        self.assertEqual(len(first["corrections"]), 1)
+        self.assertEqual(self.b.pending_corrections(), [])
+
+        second = self.b.respond("안녕")
+        self.assertNotIn("정정할게", second["say"])
+
+    def test_duplicate_invalidated_answers_make_one_pending_correction(self):
+        self.b.isa["펭귄"] = "어류"
+        for question in ("펭귄은 뭐야?", "펭귄 종류는?"):
+            self.b._record_answer(question, {"say": "펭귄은 어류야."})
+        for source in ("관찰-A", "관찰-B"):
+            self.b.learn_isa("펭귄", "펭귄은 조류이다.", source=source)
+        self.b.verify_belief("펭귄")
+        self.assertEqual(len(self.b.pending_corrections()), 1)
 
     def test_belief_and_revision_survive_save_load(self):
         self.b.isa["펭귄"] = "어류"

@@ -1006,7 +1006,8 @@ class Baby:
     def respond(self, word):
         self.lock.acquire()
         try:
-            return self._record_answer(word, self._respond(word))
+            result = self._attach_pending_corrections(word, self._respond(word))
+            return self._record_answer(word, result)
         finally:
             self.lock.release()
     def chat(self, text):
@@ -1014,10 +1015,11 @@ class Baby:
            알려준다. LLM처럼 통째로 아는 척이 아니라 — 알거나/찾아보거나(사람처럼).
            반환: {say, source, mind}."""
         with self.lock:
-            r = self._record_answer(text, self._respond(text))
+            r = self._attach_pending_corrections(text, self._respond(text))
+            r = self._record_answer(text, r)
         def finish(result):
             # _respond의 첫 답은 이미 기록했다. 검색으로 답이 바뀌면 최종 답도 남긴다.
-            return self._record_answer(text, result)
+            return self._record_answer(text, self._attach_pending_corrections(text, result))
         mind = r.get("mind", "")
         say = r.get("say", "…")
         # 아는 것으로 답했으면 그대로
@@ -2018,7 +2020,10 @@ class Baby:
                 "oppose_sources": list(winner["oppose_sources"]),
                 "reason": "독립 근거를 다시 비교해 이전 결론 수정",
             })
-            self._invalidate_answers(self._belief_key(subject, relation, old), new)
+            self._invalidate_answers(
+                self._belief_key(subject, relation, old), new,
+                revision=self.belief_revisions[-1],
+            )
         # belief_about은 외부에 줄 복사본이므로 원본 상태를 명시적으로 바꾼다.
         original = self.beliefs.get(self._belief_key(subject, relation, new))
         if original is not None: original["status"] = "accepted"
@@ -2069,12 +2074,84 @@ class Baby:
         self.answer_history=self.answer_history[-500:]
         return result
 
-    def _invalidate_answers(self, old_belief_key, replacement):
+    def _invalidate_answers(self, old_belief_key, replacement, revision=None):
         """믿음 수정 때 과거 답을 숨기지 않고 '정정 필요'로 표시한다."""
         for answer in getattr(self,"answer_history",[]) or []:
             if old_belief_key in answer.get("beliefs_used",[]):
                 answer["invalidated"] = True
-                answer["correction"] = {"replacement":replacement,"at":self.lived}
+                answer["correction"] = {
+                    "subject": (revision or {}).get("subject"),
+                    "relation": (revision or {}).get("relation", "is_a"),
+                    "previous": (revision or {}).get("from"),
+                    "replacement": replacement,
+                    "reason": (revision or {}).get(
+                        "reason", "새 근거로 이전 결론을 수정함"),
+                    "support_sources": list((revision or {}).get("support_sources", [])),
+                    "at": self.lived,
+                    "delivered": False,
+                }
+
+    def pending_corrections(self, subject=None, include_delivered=False):
+        """아직 사용자에게 알리지 않은 과거 답변의 정정을 반환한다.
+
+        결론만 조용히 덮어쓰지 않고, 어떤 답이 왜 무효가 됐는지 추적한다.
+        같은 믿음을 사용한 답이 여러 개여도 한 번의 정정으로 묶는다.
+        """
+        pending = []
+        seen = set()
+        for answer in getattr(self, "answer_history", []) or []:
+            correction = answer.get("correction") or {}
+            if not answer.get("invalidated") or not correction:
+                continue
+            if not include_delivered and correction.get("delivered"):
+                continue
+            if subject and correction.get("subject") != subject:
+                continue
+            key = (correction.get("subject"), correction.get("relation"),
+                   correction.get("previous"), correction.get("replacement"))
+            if key in seen:
+                continue
+            seen.add(key)
+            pending.append({
+                "question": answer.get("question"),
+                "old_answer": answer.get("answer"),
+                **dict(correction),
+            })
+        return pending
+
+    def acknowledge_corrections(self, corrections):
+        """전달한 정정을 같은 수정 건에 속한 모든 과거 답변에 표시한다."""
+        keys = {(c.get("subject"), c.get("relation"), c.get("previous"),
+                 c.get("replacement")) for c in corrections}
+        for answer in getattr(self, "answer_history", []) or []:
+            c = answer.get("correction") or {}
+            key = (c.get("subject"), c.get("relation"), c.get("previous"),
+                   c.get("replacement"))
+            if key in keys:
+                c["delivered"] = True
+                c["delivered_at"] = self.lived
+
+    def _attach_pending_corrections(self, question, result):
+        """다음 대화에서 미전달 오류를 먼저 인정하고 현재 답을 이어 말한다."""
+        corrections = self.pending_corrections()
+        if not corrections:
+            return result
+        notices = []
+        for c in corrections[:3]:
+            subject = c.get("subject") or "그 내용"
+            previous = c.get("previous") or "이전 결론"
+            replacement = c.get("replacement") or "새 결론"
+            notices.append(
+                f"정정할게. 전에 {subject}에 대해 {self._j(previous,'이라고','라고')} "
+                f"말했지만, 독립된 근거를 다시 확인해 {self._j(replacement,'이라고','라고')} 고쳤어."
+            )
+        self.acknowledge_corrections(corrections[:3])
+        updated = dict(result or {})
+        current = updated.get("say") or ""
+        updated["say"] = " ".join(notices + ([current] if current else []))
+        updated["corrections"] = corrections[:3]
+        updated["mind"] = "과거 오류를 먼저 인정하고 수정 근거를 밝힘; " + updated.get("mind", "")
+        return updated
 
     def learn_isa(self, word, summary, source=None):
         """설명에서 분류를 배운다. 단, 기존과 다른 분류가 오면 덮어쓰지 않고

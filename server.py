@@ -145,6 +145,11 @@ class Handler(BaseHTTPRequestHandler):
             word=(data.get("word") or "").strip()
             b=baby.get_baby()
             self._json({"ok":True,"thought":b.deliberate(word)})
+        elif self.path=="/corrections":
+            # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
+            word=(data.get("word") or "").strip() or None
+            b=baby.get_baby()
+            self._json({"ok":True,"corrections":b.pending_corrections(word)})
         elif self.path=="/doubts":
             # 모순 알아채기: 안 맞는 것 의심 + 재조사
             b=baby.get_baby()
