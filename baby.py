@@ -1,6 +1,8 @@
 import random, json, os, time, threading
 from collections import defaultdict, deque
 from belief_system import EvidenceBeliefMixin
+from experience import ExperienceMemoryMixin
+from world_model import WorldModelMixin
 try:
     import vision
     HAS_VISION = True
@@ -511,7 +513,7 @@ def link_translations_into(world, eng_words, want_langs=None):
     return n
 
 
-class Baby(EvidenceBeliefMixin):
+class Baby(EvidenceBeliefMixin, ExperienceMemoryMixin, WorldModelMixin):
     def __init__(self, mem_len=2):
         import threading as _th
         self.lock = _th.RLock()   # 자동 스레드와 메인이 동시에 안 건드리게
@@ -524,6 +526,7 @@ class Baby(EvidenceBeliefMixin):
         self.beliefs={}; self.belief_revisions=[]; self.answer_history=[]
         self.verification_tasks={}; self.verification_runs=[]
         self.contextual_conclusions={}
+        self.events=[]; self.event_seq=0; self.transition_model={}
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
         self.hist=[]
@@ -689,6 +692,16 @@ class Baby(EvidenceBeliefMixin):
                 if lng is not None:
                     self.hear_sentence(lng,s1,s2)
         self.last_signal=actual; self.last_action=action; self.lived+=1
+        # 언어 문장이 아니라 실제 상태-행동-결과 사건을 기억하고 세계 모델에 반영한다.
+        self.record_event(
+            "interaction", actor="self", action=action,
+            obj=getattr(self.world, "last_object", None),
+            outcome={"state": list(actual), "reward": reward},
+            context={"previous_state": list(prev) if prev else None},
+            source="direct",
+        )
+        self.learn_transition(list(prev) if prev else None, action,
+                              list(actual), reward)
         if status=="hit": self.last_feeling="안정"
         elif first: self.last_feeling="호기심"
         elif reward>=1.0: self.last_feeling="잘했음"
@@ -2245,6 +2258,7 @@ class Baby(EvidenceBeliefMixin):
         "beliefs", "belief_revisions", "answer_history", "verification_tasks",
         "verification_runs",
         "contextual_conclusions",
+        "events", "event_seq", "transition_model",
     ]
 
     def save(self):
