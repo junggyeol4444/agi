@@ -522,7 +522,7 @@ class Baby(EvidenceBeliefMixin):
         # 주장 자체와 그 근거를 분리해서 기억한다. 같은 말을 많이 들었다고 바로
         # 참으로 만들지 않고, 출처별 지지/반박과 수정 이력을 보존한다.
         self.beliefs={}; self.belief_revisions=[]; self.answer_history=[]
-        self.verification_tasks={}
+        self.verification_tasks={}; self.contextual_conclusions={}
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
         self.hist=[]
@@ -2223,6 +2223,7 @@ class Baby(EvidenceBeliefMixin):
         "grounding", "metaphors", "talk_topics", "partner_said", "first_words",
         "goal_log",
         "beliefs", "belief_revisions", "answer_history", "verification_tasks",
+        "contextual_conclusions",
     ]
 
     def save(self):

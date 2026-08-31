@@ -213,6 +213,10 @@ class BeliefLearningTests(unittest.TestCase):
     def test_belief_and_revision_survive_save_load(self):
         self.b.isa["펭귄"] = "어류"
         self.b.make_verification_plan("펭귄")
+        for source in ("식물학-A", "식물학-B"):
+            self.b.observe_belief("토마토", "is_a", "과일", source=source,
+                                  context={"domain": "botany"})
+        self.b.verify_belief("토마토", context={"domain": "botany"})
         for source in ("관찰-A", "관찰-B"):
             self.b.learn_isa("펭귄", "펭귄은 조류이다.", source=source)
         self.b.verify_belief("펭귄")
@@ -226,6 +230,8 @@ class BeliefLearningTests(unittest.TestCase):
         self.assertEqual(restored.belief_revisions[-1]["from"], "어류")
         task = restored.verification_tasks[restored._verification_key("펭귄", "is_a")]
         self.assertEqual(task["status"], "resolved")
+        context_key = restored._context_key("토마토", "is_a", {"domain": "botany"})
+        self.assertEqual(restored.contextual_conclusions[context_key], "과일")
 
 
 if __name__ == "__main__":

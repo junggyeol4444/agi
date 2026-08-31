@@ -136,21 +136,25 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path=="/belief":
             # 확률 높은 문장을 만드는 게 아니라, 실제로 모은 지지/반박 근거와 수정 이력.
             word=(data.get("word") or "").strip()
+            context=data.get("context") if isinstance(data.get("context"),dict) else None
             b=baby.get_baby()
-            self._json({"ok":True,"word":word,"beliefs":b.belief_about(word),
+            self._json({"ok":True,"word":word,"context":context or {},
+                        "beliefs":b.belief_about(word, context=context),
                         "revisions":[r for r in getattr(b,"belief_revisions",[])
                                      if r.get("subject")==word]})
         elif self.path=="/reason":
             # 모든 입력을 예측하지 않는다. 근거 상태에 따라 조사/보류/검증/회상을 선택한다.
             word=(data.get("word") or "").strip()
+            context=data.get("context") if isinstance(data.get("context"),dict) else None
             b=baby.get_baby()
-            self._json({"ok":True,"thought":b.deliberate(word)})
+            self._json({"ok":True,"thought":b.deliberate(word, context=context)})
         elif self.path=="/verification-plan":
             # 모순·불확실성을 실제로 확인할 다음 행동과 반증 목표로 바꾼다.
             word=(data.get("word") or "").strip()
             relation=(data.get("relation") or "is_a").strip()
+            context=data.get("context") if isinstance(data.get("context"),dict) else None
             b=baby.get_baby()
-            self._json({"ok":True,"plan":b.make_verification_plan(word, relation)})
+            self._json({"ok":True,"plan":b.make_verification_plan(word, relation, context)})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None
