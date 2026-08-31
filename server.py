@@ -133,6 +133,18 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok":True,"word":word,
                         "hypothesis":b.make_hypothesis(word),
                         "verify":b.verify_hypothesis(word)})
+        elif self.path=="/belief":
+            # 확률 높은 문장을 만드는 게 아니라, 실제로 모은 지지/반박 근거와 수정 이력.
+            word=(data.get("word") or "").strip()
+            b=baby.get_baby()
+            self._json({"ok":True,"word":word,"beliefs":b.belief_about(word),
+                        "revisions":[r for r in getattr(b,"belief_revisions",[])
+                                     if r.get("subject")==word]})
+        elif self.path=="/reason":
+            # 모든 입력을 예측하지 않는다. 근거 상태에 따라 조사/보류/검증/회상을 선택한다.
+            word=(data.get("word") or "").strip()
+            b=baby.get_baby()
+            self._json({"ok":True,"thought":b.deliberate(word)})
         elif self.path=="/doubts":
             # 모순 알아채기: 안 맞는 것 의심 + 재조사
             b=baby.get_baby()

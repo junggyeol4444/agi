@@ -518,6 +518,9 @@ class Baby:
         self.isa={}; self.causes={}; self.relations={}; self.doubts={}
         self.concept_web={}; self.metaphors={}; self.grounding={}
         self.partner_said={}; self.talk_topics=[]; self.first_words=[]
+        # 주장 자체와 그 근거를 분리해서 기억한다. 같은 말을 많이 들었다고 바로
+        # 참으로 만들지 않고, 출처별 지지/반박과 수정 이력을 보존한다.
+        self.beliefs={}; self.belief_revisions=[]; self.answer_history=[]
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
         self.hist=[]
@@ -1003,7 +1006,7 @@ class Baby:
     def respond(self, word):
         self.lock.acquire()
         try:
-            return self._respond(word)
+            return self._record_answer(word, self._respond(word))
         finally:
             self.lock.release()
     def chat(self, text):
@@ -1011,7 +1014,10 @@ class Baby:
            알려준다. LLM처럼 통째로 아는 척이 아니라 — 알거나/찾아보거나(사람처럼).
            반환: {say, source, mind}."""
         with self.lock:
-            r = self._respond(text)
+            r = self._record_answer(text, self._respond(text))
+        def finish(result):
+            # _respond의 첫 답은 이미 기록했다. 검색으로 답이 바뀌면 최종 답도 남긴다.
+            return self._record_answer(text, result)
         mind = r.get("mind", "")
         say = r.get("say", "…")
         # 아는 것으로 답했으면 그대로
@@ -1022,8 +1028,8 @@ class Baby:
         w = w.split()[-1] if " " in w else w
         if not (SETTINGS.get('real_search') or SETTINGS.get('real_translation')
                 or SETTINGS.get('real_image')):
-            return {"say": say + " (검색이 꺼져 있어 못 찾아봤어 — ⚙설정에서 검색을 켜줘)",
-                    "source": "모름(검색 꺼짐)", "mind": mind}
+            return finish({"say": say + " (검색이 꺼져 있어 못 찾아봤어 — ⚙설정에서 검색을 켜줘)",
+                    "source": "모름(검색 꺼짐)", "mind": mind})
         try:
             with self.lock:
                 info = self._search_and_learn(w)
@@ -1031,17 +1037,17 @@ class Baby:
             src = (info or {}).get("source") or "인터넷"
             err = (info or {}).get("error")
             if summ:
-                return {"say": f"나도 잘 몰랐는데 찾아봤어. {summ[:400]}",
-                        "source": src, "mind": "모르는 것 → 검색해서 알려줌"}
+                return finish({"say": f"나도 잘 몰랐는데 찾아봤어. {summ[:400]}",
+                        "source": src, "mind": "모르는 것 → 검색해서 알려줌"})
             elif err:
-                return {"say": f"'{w}' 찾아보려는데 잘 안 됐어. ({err[:80]})",
-                        "source": src, "mind": "검색 시도했지만 실패"}
+                return finish({"say": f"'{w}' 찾아보려는데 잘 안 됐어. ({err[:80]})",
+                        "source": src, "mind": "검색 시도했지만 실패"})
             else:
-                return {"say": f"'{w}' 찾아봤는데 확실한 내용을 못 가져왔어.",
-                        "source": src, "mind": "검색했지만 내용 없음"}
+                return finish({"say": f"'{w}' 찾아봤는데 확실한 내용을 못 가져왔어.",
+                        "source": src, "mind": "검색했지만 내용 없음"})
         except Exception as e:
-            return {"say": f"찾아보다 문제가 생겼어: {type(e).__name__}",
-                    "source": "오류", "mind": str(e)[:80]}
+            return finish({"say": f"찾아보다 문제가 생겼어: {type(e).__name__}",
+                    "source": "오류", "mind": str(e)[:80]})
 
     def _respond(self, word):
         """진짜 대화: 한 마디를 받아 응답한다.
@@ -1435,7 +1441,7 @@ class Baby:
                         if link not in self.relations[thing]:
                             self.relations[thing].append(link)
                     # 설명에서 분류(~은 ~이다)를 배운다 — 정확한 추론의 재료
-                    self.learn_isa(thing, info.get("summary"))
+                    self.learn_isa(thing, info.get("summary"), source=info.get("source"))
                     self.learn_cause(thing, info.get("summary"))
                     # 6단계(진짜 이해): 관계망도 배운다 (부분-전체·가짐·반대·인과)
                     self.learn_relation(thing, info.get("summary"), source=info.get("source"))
@@ -1889,7 +1895,188 @@ class Baby:
                     "mind": "(35) 사람이 말한 문장에서 배움 — 말한 걸 추론 재료로"}
         return None
 
-    def learn_isa(self, word, summary):
+    def _belief_key(self, subject, relation, obj):
+        """JSON에도 그대로 저장할 수 있는 안정적인 믿음 식별자."""
+        return f"{subject}\u241f{relation}\u241f{obj}"
+
+    _EVIDENCE_WEIGHT = {
+        "direct": 1.5,       # 직접 감각으로 겪음
+        "experiment": 2.0,   # 조건을 바꿔 다시 확인함
+        "testimony": 1.0,    # 다른 사람·문서가 말함
+        "inference": 0.35,   # 다른 믿음에서 추론함(검증 대신 쓰면 안 됨)
+    }
+
+    def observe_belief(self, subject, relation, obj, source=None, supports=True,
+                       evidence=None, kind="testimony", reliability=1.0,
+                       context=None, evidence_id=None):
+        """주장을 참/거짓으로 확정하지 않고 한 번의 근거로 기록한다.
+
+        출처 하나가 같은 말을 반복해도 독립 근거 하나로 센다. 원문 기록은 남겨
+        나중에 왜 믿었고 왜 고쳤는지 되짚을 수 있게 한다.
+        """
+        if not isinstance(getattr(self, "beliefs", None), dict):
+            self.beliefs = {}
+        source = (source or "unknown").strip()
+        kind = kind if kind in self._EVIDENCE_WEIGHT else "testimony"
+        try: reliability = max(0.0, min(1.0, float(reliability)))
+        except (TypeError, ValueError): reliability = 0.5
+        key = self._belief_key(subject, relation, obj)
+        b = self.beliefs.setdefault(key, {
+            "subject": subject, "relation": relation, "object": obj,
+            "observations": [],
+            "status": "unverified", "created_at": self.lived,
+            "updated_at": self.lived,
+        })
+        # 증언은 같은 출처가 반복해도 하나의 근거다. 직접 관찰·실험은 호출자가
+        # 서로 다른 evidence_id를 주었을 때만 독립된 반복으로 인정한다.
+        unit = evidence_id or f"{kind}:{source}"
+        observation = {
+            "id": unit,
+            "source": source, "supports": bool(supports),
+            "kind": kind, "reliability": reliability,
+            "context": context or {}, "evidence": (evidence or "")[:500],
+            "at": self.lived,
+        }
+        # 같은 근거 단위가 다시 들어오면 최신 관찰로 교체한다. 반복 횟수로 진실을
+        # 부풀리지 않으면서, 그 출처가 정정한 것은 반영한다.
+        b["observations"] = [o for o in b["observations"] if o.get("id") != unit]
+        b["observations"].append(observation)
+        b["observations"] = b["observations"][-100:]
+        b["updated_at"] = self.lived
+        totals = self._belief_evidence_totals(b)
+        if totals["support"] and totals["oppose"]:
+            b["status"] = "disputed"
+        elif totals["support"] >= 2.0:
+            b["status"] = "supported"
+        else:
+            b["status"] = "unverified"
+        return b
+
+    def _belief_evidence_totals(self, belief):
+        """근거의 종류와 신뢰도를 반영한 지지/반박량. 문장 확률과 무관하다."""
+        support = oppose = 0.0
+        support_sources, oppose_sources = set(), set()
+        for o in belief.get("observations", []):
+            weight = self._EVIDENCE_WEIGHT.get(o.get("kind"), 0.0)
+            weight *= max(0.0, min(1.0, float(o.get("reliability", 0.5))))
+            if o.get("supports"):
+                support += weight; support_sources.add(o.get("source", "unknown"))
+            else:
+                oppose += weight; oppose_sources.add(o.get("source", "unknown"))
+        # 이전 버전 저장 파일을 읽을 때 출처 장부를 잃지 않는다.
+        if not belief.get("observations"):
+            support_sources.update(belief.get("support_sources", []))
+            oppose_sources.update(belief.get("oppose_sources", []))
+            support += len(support_sources); oppose += len(oppose_sources)
+        return {"support": round(support, 3), "oppose": round(oppose, 3),
+                "support_sources": sorted(support_sources),
+                "oppose_sources": sorted(oppose_sources)}
+
+    def belief_about(self, subject, relation="is_a"):
+        """대상에 관한 후보와 근거를 반환한다. 문장 생성 확률은 사용하지 않는다."""
+        out = []
+        for b in (getattr(self, "beliefs", {}) or {}).values():
+            if b.get("subject") == subject and b.get("relation") == relation:
+                item = dict(b)
+                totals = self._belief_evidence_totals(b)
+                item.update(totals)
+                total = totals["support"] + totals["oppose"] + 1.0
+                item["confidence"] = round(totals["support"] / total, 3)
+                out.append(item)
+        return sorted(out, key=lambda x: (x["support"]-x["oppose"], x["support"]), reverse=True)
+
+    def verify_belief(self, subject, relation="is_a", min_evidence=2.0):
+        """독립 출처와 반대 근거를 비교해 현재 결론을 갱신한다.
+
+        증거가 부족하거나 후보들이 비슷하면 결론을 내리지 않는다. 결론을 바꿀 때에는
+        이전 결론, 새 결론, 사용한 근거를 수정 장부에 남긴다.
+        """
+        candidates = self.belief_about(subject, relation)
+        ranked = []
+        for b in candidates:
+            score = b["support"] - b["oppose"]
+            if b["support"] >= min_evidence and score >= 1.0 and b["confidence"] >= 0.6:
+                ranked.append((score, b["support"], b))
+        if not ranked:
+            return {"subject": subject, "verified": False, "reason": "독립 근거 부족", "candidates": candidates}
+        ranked.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        if len(ranked) > 1 and ranked[0][0] - ranked[1][0] < 0.75:
+            return {"subject": subject, "verified": False, "reason": "근거가 맞서 결론 보류", "candidates": candidates}
+        winner = ranked[0][2]
+        old = self.isa.get(subject) if relation == "is_a" else None
+        new = winner["object"]
+        if relation == "is_a":
+            self.isa[subject] = new
+            self.doubts.pop(subject, None)
+        changed = old is not None and old != new
+        if changed:
+            if not isinstance(getattr(self, "belief_revisions", None), list):
+                self.belief_revisions = []
+            self.belief_revisions.append({
+                "subject": subject, "relation": relation, "from": old, "to": new,
+                "at": self.lived, "support_sources": list(winner["support_sources"]),
+                "oppose_sources": list(winner["oppose_sources"]),
+                "reason": "독립 근거를 다시 비교해 이전 결론 수정",
+            })
+            self._invalidate_answers(self._belief_key(subject, relation, old), new)
+        # belief_about은 외부에 줄 복사본이므로 원본 상태를 명시적으로 바꾼다.
+        original = self.beliefs.get(self._belief_key(subject, relation, new))
+        if original is not None: original["status"] = "accepted"
+        return {"subject": subject, "verified": True, "conclusion": new,
+                "changed": changed, "previous": old,
+                "support_sources": list(winner["support_sources"]),
+                "oppose_sources": list(winner["oppose_sources"]),
+                "confidence": winner["confidence"]}
+
+    def deliberate(self, subject, relation="is_a"):
+        """무조건 예측하지 않고 현재 상태에 맞는 사고 행동을 고른다.
+
+        아는 근거가 없으면 조사, 충돌하면 검증, 검증됐으면 근거 회상, 아직 약하면
+        보류한다. 출력의 steps는 실제로 어떤 기억을 확인했는지 보여준다.
+        """
+        candidates = self.belief_about(subject, relation)
+        steps = ["질문에서 대상과 관계를 분리함", "관련된 경험과 출처를 기억에서 찾음"]
+        if not candidates:
+            self._wonder(subject)
+            return {"subject": subject, "action": "investigate", "conclusion": None,
+                    "steps": steps + ["근거가 없어 조사 대상으로 올림"], "candidates": []}
+        if len(candidates) > 1 or any(c.get("status") == "disputed" or c["oppose"] > 0 for c in candidates):
+            self._wonder(subject)
+            return {"subject": subject, "action": "verify", "conclusion": None,
+                    "steps": steps + ["서로 맞지 않는 근거를 발견함", "반증 가능한 추가 확인이 필요함"],
+                    "candidates": candidates}
+        verified = self.verify_belief(subject, relation)
+        if verified.get("verified"):
+            return {"subject": subject, "action": "recall", "conclusion": verified["conclusion"],
+                    "confidence": verified.get("confidence"),
+                    "steps": steps + ["지지·반박 근거를 비교함", "현재 결론을 근거와 함께 회상함"],
+                    "candidates": candidates}
+        self._wonder(subject)
+        return {"subject": subject, "action": "withhold", "conclusion": None,
+                "steps": steps + ["근거가 있지만 아직 부족해 판단을 보류함"],
+                "candidates": candidates}
+
+    def _record_answer(self, question, result):
+        if not isinstance(getattr(self, "answer_history", None), list): self.answer_history=[]
+        used=[]
+        text=(question or "")+" "+str((result or {}).get("say", ""))
+        for subject, obj in (getattr(self,"isa",{}) or {}).items():
+            if subject in text:
+                used.append(self._belief_key(subject,"is_a",obj))
+        self.answer_history.append({"question":question,"answer":(result or {}).get("say"),
+                                    "beliefs_used":used,"at":self.lived,
+                                    "invalidated":False})
+        self.answer_history=self.answer_history[-500:]
+        return result
+
+    def _invalidate_answers(self, old_belief_key, replacement):
+        """믿음 수정 때 과거 답을 숨기지 않고 '정정 필요'로 표시한다."""
+        for answer in getattr(self,"answer_history",[]) or []:
+            if old_belief_key in answer.get("beliefs_used",[]):
+                answer["invalidated"] = True
+                answer["correction"] = {"replacement":replacement,"at":self.lived}
+
+    def learn_isa(self, word, summary, source=None):
         """설명에서 분류를 배운다. 단, 기존과 다른 분류가 오면 덮어쓰지 않고
            '모순'으로 표시해 의심한다(아무거나 안 믿기)."""
         if not hasattr(self, "isa"):
@@ -1899,9 +2086,12 @@ class Baby:
         b = self._extract_isa(word, summary)
         if not b or b == word:
             return b
+        self.observe_belief(word, "is_a", b, source=source,
+                            supports=True, evidence=summary)
         old = self.isa.get(word)
         if old is None:
-            self.isa[word] = b          # 처음 배움 — 믿는다
+            # 처음 들은 주장은 후보로만 보존한다. 검증 전에는 추론용 isa에 넣지 않는다.
+            return b
         elif old != b and not self._same_branch(old, b):
             # (34) 분류는 어긋나는데 '같이 쓰는 말'이 겹치면 — 비유로 알아듣는다.
             #  예) "시간은 돈이다": 시간≠돈이지만 둘 다 '쓰다·아끼다'와 같이 쓰임 → 비유.
@@ -1990,20 +2180,16 @@ class Baby:
                 "note": f"아마 '{word}'은(는) '{best}'일 것 같다"}
 
     def verify_hypothesis(self, word):
-        """가설을 검증한다: 가설을 세우고, 재조사 결과가 지지하면 채택해 모순 해소.
-           ※ 진짜 검증은 재조사(크롤링)가 필요 — 네 컴퓨터. 여기선 아는 것으로 판단."""
-        h = self.make_hypothesis(word)
-        if not h or not h.get("hypothesis"):
-            return {"word": word, "resolved": False,
-                    "note": (h or {}).get("note", "가설 못 세움")}
-        best = h["hypothesis"]
-        # 가설 채택: 모순 해소 — 믿는 분류를 가설로 정하고 의심에서 내림
-        self.isa[word] = best
-        if hasattr(self, "doubts") and word in self.doubts:
-            self.doubts.pop(word, None)
-        return {"word": word, "resolved": True, "conclusion": best,
-                "because": h.get("because", []),
-                "note": f"검증 결과 '{word}'은(는) '{best}'로 결론(모순 해소)"}
+        """가설 자체를 근거로 채택하지 않고, 별도로 축적된 증거로만 검증한다."""
+        v = self.verify_belief(word, "is_a")
+        return {"word": word, "resolved": v.get("verified", False),
+                "conclusion": v.get("conclusion"), "changed": v.get("changed", False),
+                "previous": v.get("previous"), "evidence": {
+                    "support_sources": v.get("support_sources", []),
+                    "oppose_sources": v.get("oppose_sources", []),
+                }, "note": ("독립 근거를 비교해 결론을 수정함" if v.get("changed")
+                            else "독립 근거로 확인함" if v.get("verified")
+                            else v.get("reason", "검증할 근거 부족"))}
 
     def learn_cause(self, word, summary):
         """설명 문장에서 인과(원인→결과)를 배운다. 'A 때문에 B', 'A면 B'.
@@ -2213,6 +2399,7 @@ class Baby:
         "relations", "isa", "causes", "doubts", "concept_web",
         "grounding", "metaphors", "talk_topics", "partner_said", "first_words",
         "goal_log",
+        "beliefs", "belief_revisions", "answer_history",
     ]
 
     def save(self):
@@ -2537,8 +2724,16 @@ def _make():
     else:
         print(f'[준비됨] 사물 {_n}개 로드. 이제 살게하기를 눌러도 됩니다.')
     return b
-_current={"baby":_make()}
-def get_baby():return _current["baby"]
+_current={"baby":None}
+def get_baby():
+    """처음 실제로 필요할 때 세상을 만든다.
+
+    모듈을 읽는 것만으로 사전 다운로드와 거대한 초기화를 시작하지 않으므로
+    학습기관을 외부 정답 없이 독립적으로 시험할 수 있다.
+    """
+    if _current["baby"] is None:
+        _current["baby"]=_make()
+    return _current["baby"]
 def reset_baby(mem_len=2):
     if os.path.exists(MEMORY_FILE):os.remove(MEMORY_FILE)
     _current["baby"]=Baby(mem_len=mem_len); return _current["baby"]
