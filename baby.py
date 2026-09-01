@@ -1,5 +1,6 @@
 import random, json, os, time, threading
 from collections import defaultdict, deque
+from action_selection import ActionSelectionMixin
 from belief_system import EvidenceBeliefMixin
 from experience import ExperienceMemoryMixin
 from motivation import IntrinsicMotivationMixin
@@ -517,8 +518,8 @@ def link_translations_into(world, eng_words, want_langs=None):
     return n
 
 
-class Baby(EvidenceBeliefMixin, ExperienceMemoryMixin, IntrinsicMotivationMixin,
-           WorldModelMixin):
+class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
+           IntrinsicMotivationMixin, WorldModelMixin):
     def __init__(self, mem_len=2):
         import threading as _th
         self.lock = _th.RLock()   # 자동 스레드와 메인이 동시에 안 건드리게
@@ -532,6 +533,7 @@ class Baby(EvidenceBeliefMixin, ExperienceMemoryMixin, IntrinsicMotivationMixin,
         self.verification_tasks={}; self.verification_runs=[]
         self.contextual_conclusions={}
         self.events=[]; self.event_seq=0; self.transition_model={}
+        self.action_decisions=[]
         self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
@@ -570,11 +572,8 @@ class Baby(EvidenceBeliefMixin, ExperienceMemoryMixin, IntrinsicMotivationMixin,
 
     def choose_action(self):
         sig=self.last_signal
-        # 학습 전(상황 모를 때)이거나 탐험이면 무작위
-        if sig is None or random.random()<self.explore:
-            return random.choice(ACTIONS)
-        qv=self.q[sig]
-        return max(qv, key=qv.get)   # 지금까지 가장 기분 좋았던 행동
+        decision = self.select_action(list(sig) if sig else None, ACTIONS)
+        return decision["action"]
 
     # 몇 번 이상 같은 이름을 들어야 그 사물을 '확실히 안다'고 친다.
     KNOW_THRESHOLD = 3
@@ -716,6 +715,8 @@ class Baby(EvidenceBeliefMixin, ExperienceMemoryMixin, IntrinsicMotivationMixin,
                      "intrinsic_reward": motivation["total"]},
             context={"previous_state": list(prev) if prev else None},
             source="direct",
+            metadata={"decision": self.action_decisions[-1]
+                      if self.action_decisions else None},
         )
         if status=="hit": self.last_feeling="안정"
         elif first: self.last_feeling="호기심"
@@ -728,6 +729,7 @@ class Baby(EvidenceBeliefMixin, ExperienceMemoryMixin, IntrinsicMotivationMixin,
                 "action":action,"reward":reward,
                 "external_reward":reward,"intrinsic_reward":motivation["total"],
                 "motivation":motivation,
+                "decision":self.action_decisions[-1] if self.action_decisions else None,
                 "mood":round(self.mood,3),"feeling":self.last_feeling}
 
     def say(self, obj, lang="ko"):
@@ -2277,6 +2279,7 @@ class Baby(EvidenceBeliefMixin, ExperienceMemoryMixin, IntrinsicMotivationMixin,
         "contextual_conclusions",
         "events", "event_seq", "transition_model",
         "drive_weights",
+        "action_decisions",
     ]
 
     def save(self):
