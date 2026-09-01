@@ -133,6 +133,62 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok":True,"word":word,
                         "hypothesis":b.make_hypothesis(word),
                         "verify":b.verify_hypothesis(word)})
+        elif self.path=="/belief":
+            # 확률 높은 문장을 만드는 게 아니라, 실제로 모은 지지/반박 근거와 수정 이력.
+            word=(data.get("word") or "").strip()
+            context=data.get("context") if isinstance(data.get("context"),dict) else None
+            b=baby.get_baby()
+            self._json({"ok":True,"word":word,"context":context or {},
+                        "beliefs":b.belief_about(word, context=context),
+                        "revisions":[r for r in getattr(b,"belief_revisions",[])
+                                     if r.get("subject")==word]})
+        elif self.path=="/reason":
+            # 모든 입력을 예측하지 않는다. 근거 상태에 따라 조사/보류/검증/회상을 선택한다.
+            word=(data.get("word") or "").strip()
+            context=data.get("context") if isinstance(data.get("context"),dict) else None
+            b=baby.get_baby()
+            self._json({"ok":True,"thought":b.deliberate(word, context=context)})
+        elif self.path=="/verification-plan":
+            # 모순·불확실성을 실제로 확인할 다음 행동과 반증 목표로 바꾼다.
+            word=(data.get("word") or "").strip()
+            relation=(data.get("relation") or "is_a").strip()
+            context=data.get("context") if isinstance(data.get("context"),dict) else None
+            b=baby.get_baby()
+            self._json({"ok":True,"plan":b.make_verification_plan(word, relation, context)})
+        elif self.path=="/verification-queue":
+            # 해결되지 않은 검증 작업을 충돌·재검증 필요도 순으로 반환한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"queue":b.verification_queue(data.get("limit",10))})
+        elif self.path=="/verification-run":
+            # 대기열의 우선 과제를 실제 조사하고 근거 장부에 넣은 뒤 다시 검증한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"runs":b.run_verification(data.get("limit",1)),
+                        "queue":b.verification_queue(10)})
+        elif self.path=="/plan-actions":
+            # 학습한 세계 모델만 사용해 목표 상태까지 짧은 행동열을 찾는다.
+            b=baby.get_baby()
+            state=data.get("state", list(b.last_signal) if b.last_signal else None)
+            goal=data.get("goal")
+            actions=data.get("actions") if isinstance(data.get("actions"),list) else baby.ACTIONS
+            self._json({"ok":True,"plan":b.plan_actions(
+                state, goal, actions, data.get("max_depth",3),
+                action_costs=data.get("action_costs") if isinstance(data.get("action_costs"),dict) else None)})
+        elif self.path=="/execute-plan":
+            # 계획 행동을 실제 환경에 적용하고 예상과 다르면 현재 상태에서 재계획한다.
+            b=baby.get_baby()
+            plan=data.get("plan") if isinstance(data.get("plan"),dict) else {}
+            run=b.run_action_plan(plan, data.get("max_replans",2))
+            self._json({"ok":True,"run":run})
+        elif self.path=="/calibration":
+            # 자신이 말한 확신과 실제 성공률이 맞는지 수치로 확인한다.
+            b=baby.get_baby()
+            kind=(data.get("kind") or "").strip() or None
+            self._json({"ok":True,"report":b.calibration_report(kind, data.get("bins",5))})
+        elif self.path=="/corrections":
+            # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
+            word=(data.get("word") or "").strip() or None
+            b=baby.get_baby()
+            self._json({"ok":True,"corrections":b.pending_corrections(word)})
         elif self.path=="/doubts":
             # 모순 알아채기: 안 맞는 것 의심 + 재조사
             b=baby.get_baby()

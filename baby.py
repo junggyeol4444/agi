@@ -1,5 +1,14 @@
 import random, json, os, time, threading
 from collections import defaultdict, deque
+from action_selection import ActionSelectionMixin
+from belief_system import EvidenceBeliefMixin
+from experience import ExperienceMemoryMixin
+from metacognition import MetacognitionMixin
+from motivation import IntrinsicMotivationMixin
+from plan_executor import PlanExecutionMixin
+from planner import PlannerMixin
+from skills import SkillLearningMixin
+from world_model import WorldModelMixin
 try:
     import vision
     HAS_VISION = True
@@ -110,8 +119,9 @@ class World:
     """발달형 세상: 아기가 자랄수록(나이) 신호 채널이 늘어 상황이 풍부해진다.
        어릴 땐 단순(밝기만), 크면 소리·촉각·위치가 추가돼 배울 게 계속 생긴다.
        상황마다 좋은 행동이 정해져 있고(아기는 모름), 겪으며 스스로 배운다."""
-    def __init__(self, seed=7):
+    def __init__(self, seed=7, scripted_rewards=False):
         self.rng=random.Random(seed); self.i=0; self.dir=1
+        self.scripted_rewards=bool(scripted_rewards)
         self.best={}
         self.pending=[]   # 3단계: 지연 보상 큐
         self.objects={o:dict(langs) for o,langs in OBJECTS.items()}  # 사물->{언어:단어}
@@ -182,11 +192,13 @@ class World:
         self.last_audio = asig
         sig=tuple(parts)
         # 즉시 보상: 이 상황의 좋은 행동을 했나
-        immediate = 1.0 if (prev_sit is not None and action==self._best(prev_sit)) else 0.0
+        # 정답 행동표 보상은 비교 실험에서만 명시적으로 켠다. 기본 삶에서는 꺼져 있다.
+        immediate = (1.0 if (self.scripted_rewards and prev_sit is not None
+                              and action==self._best(prev_sit)) else 0.0)
         # 3단계(4살~): 일부 보상은 시간차로 온다.
         #   prev_sit이 "지연 상황"이고 거기서 reach를 했으면 2틱 뒤에 보상 예약.
         delayed = 0.0
-        if years >= 4.0:
+        if self.scripted_rewards and years >= 4.0:
             if prev_sit is not None and self._is_delay_cue(prev_sit) and action=="reach":
                 self.pending.append([2, 1.0])
             nxt=[]
@@ -510,7 +522,9 @@ def link_translations_into(world, eng_words, want_langs=None):
     return n
 
 
-class Baby:
+class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
+           MetacognitionMixin, IntrinsicMotivationMixin, PlannerMixin, PlanExecutionMixin,
+           SkillLearningMixin, WorldModelMixin):
     def __init__(self, mem_len=2):
         import threading as _th
         self.lock = _th.RLock()   # 자동 스레드와 메인이 동시에 안 건드리게
@@ -518,6 +532,18 @@ class Baby:
         self.isa={}; self.causes={}; self.relations={}; self.doubts={}
         self.concept_web={}; self.metaphors={}; self.grounding={}
         self.partner_said={}; self.talk_topics=[]; self.first_words=[]
+        # 주장 자체와 그 근거를 분리해서 기억한다. 같은 말을 많이 들었다고 바로
+        # 참으로 만들지 않고, 출처별 지지/반박과 수정 이력을 보존한다.
+        self.beliefs={}; self.belief_revisions=[]; self.answer_history=[]
+        self.verification_tasks={}; self.verification_runs=[]
+        self.contextual_conclusions={}
+        self.events=[]; self.event_seq=0; self.transition_model={}
+        self.action_decisions=[]
+        self.plans=[]
+        self.plan_runs=[]
+        self.skills={}
+        self.calibration_records=[]
+        self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
         self.hist=[]
@@ -555,11 +581,8 @@ class Baby:
 
     def choose_action(self):
         sig=self.last_signal
-        # 학습 전(상황 모를 때)이거나 탐험이면 무작위
-        if sig is None or random.random()<self.explore:
-            return random.choice(ACTIONS)
-        qv=self.q[sig]
-        return max(qv, key=qv.get)   # 지금까지 가장 기분 좋았던 행동
+        decision = self.select_action(list(sig) if sig else None, ACTIONS)
+        return decision["action"]
 
     # 몇 번 이상 같은 이름을 들어야 그 사물을 '확실히 안다'고 친다.
     KNOW_THRESHOLD = 3
@@ -585,9 +608,9 @@ class Baby:
                     out.append(obj); break
         return out
 
-    def live_one(self, injected=None):
+    def live_one(self, injected=None, action_override=None):
         guess=self.predict()
-        action=self.choose_action()
+        action=action_override if action_override in ACTIONS else self.choose_action()
         prev=self.last_signal
         years=self.lived/TICKS_PER_YEAR
         if injected is not None:
@@ -606,8 +629,18 @@ class Baby:
         if k is not None: self.memory[k][actual]+=1
         self.hist.append(actual)
 
+        model_before = self.predict_effects(list(prev) if prev else None, action)
+        model_after = self.learn_transition(list(prev) if prev else None, action,
+                                            list(actual), reward)
+        motivation = self.intrinsic_motivation(
+            novelty=1.0 if first else 0.0,
+            uncertainty_before=model_before["uncertainty"],
+            uncertainty_after=model_after["uncertainty"],
+        )
+        learning_reward = float(reward) + motivation["total"]
+
         # 1단계 기분 = 예측안정 + 호기심 + (2단계)행동보상
-        feeling=0.5*stable + 0.2*(1.0 if first else 0.0) + 0.3*reward
+        feeling=0.5*stable + 0.2*(1.0 if first else 0.0) + 0.3*learning_reward
         self.mood=0.8*self.mood+0.2*feeling
         self.mood_sum+=self.mood
 
@@ -615,17 +648,17 @@ class Baby:
         # 보상이 오면 최근 행동들에 시간차로 공을 나눈다(가까운 과거일수록 크게).
         if prev is not None:
             self.trace.append((prev, action))
-            self.reward_sum+=reward; self.reward_n+=1
-            self.recent_reward.append(reward)
-        if reward>0 and self.trace:
+            self.reward_sum+=learning_reward; self.reward_n+=1
+            self.recent_reward.append(learning_reward)
+        if learning_reward>0 and self.trace:
             for i,(s,a) in enumerate(reversed(self.trace)):
-                credit=reward*(0.6**i)          # i=0 방금행동, 멀수록 감쇠
+                credit=learning_reward*(0.6**i) # 외부 정답표가 아닌 경험 기반 동기도 포함
                 # 안전: 상태 dict에 행동 키가 없어도 터지지 않게(항상 모든 행동 보장)
                 if a not in self.qn[s]: self.qn[s][a]=0
                 if a not in self.q[s]:  self.q[s][a]=0.0
                 self.qn[s][a]+=1; n=self.qn[s][a]
                 self.q[s][a]=self.q[s][a]+(credit-self.q[s][a])/n
-            self._bin_sum+=reward; self._bin_n+=1
+            self._bin_sum+=learning_reward; self._bin_n+=1
             if self._bin_n>=self._bin_size:
                 yrs=round(self.lived/TICKS_PER_YEAR,2)
                 self.growth_curve.append([yrs, round(self._bin_sum/self._bin_n*100,1)])
@@ -683,15 +716,29 @@ class Baby:
                 if lng is not None:
                     self.hear_sentence(lng,s1,s2)
         self.last_signal=actual; self.last_action=action; self.lived+=1
+        # 언어 문장이 아니라 실제 상태-행동-결과 사건을 기억하고 세계 모델에 반영한다.
+        self.record_event(
+            "interaction", actor="self", action=action,
+            obj=getattr(self.world, "last_object", None),
+            outcome={"state": list(actual), "external_reward": reward,
+                     "intrinsic_reward": motivation["total"]},
+            context={"previous_state": list(prev) if prev else None},
+            source="direct",
+            metadata={"decision": self.action_decisions[-1]
+                      if self.action_decisions else None},
+        )
         if status=="hit": self.last_feeling="안정"
         elif first: self.last_feeling="호기심"
-        elif reward>=1.0: self.last_feeling="잘했음"
+        elif learning_reward>0: self.last_feeling="배움"
         elif status=="miss": self.last_feeling="어긋남"
         else: self.last_feeling="덤덤"
 
         return {"t":self.lived,"seen":list(actual),
                 "guess":list(guess) if guess else None,"status":status,
                 "action":action,"reward":reward,
+                "external_reward":reward,"intrinsic_reward":motivation["total"],
+                "motivation":motivation,
+                "decision":self.action_decisions[-1] if self.action_decisions else None,
                 "mood":round(self.mood,3),"feeling":self.last_feeling}
 
     def say(self, obj, lang="ko"):
@@ -1003,7 +1050,8 @@ class Baby:
     def respond(self, word):
         self.lock.acquire()
         try:
-            return self._respond(word)
+            result = self._attach_pending_corrections(word, self._respond(word))
+            return self._record_answer(word, result)
         finally:
             self.lock.release()
     def chat(self, text):
@@ -1011,7 +1059,11 @@ class Baby:
            알려준다. LLM처럼 통째로 아는 척이 아니라 — 알거나/찾아보거나(사람처럼).
            반환: {say, source, mind}."""
         with self.lock:
-            r = self._respond(text)
+            r = self._attach_pending_corrections(text, self._respond(text))
+            r = self._record_answer(text, r)
+        def finish(result):
+            # _respond의 첫 답은 이미 기록했다. 검색으로 답이 바뀌면 최종 답도 남긴다.
+            return self._record_answer(text, self._attach_pending_corrections(text, result))
         mind = r.get("mind", "")
         say = r.get("say", "…")
         # 아는 것으로 답했으면 그대로
@@ -1022,8 +1074,8 @@ class Baby:
         w = w.split()[-1] if " " in w else w
         if not (SETTINGS.get('real_search') or SETTINGS.get('real_translation')
                 or SETTINGS.get('real_image')):
-            return {"say": say + " (검색이 꺼져 있어 못 찾아봤어 — ⚙설정에서 검색을 켜줘)",
-                    "source": "모름(검색 꺼짐)", "mind": mind}
+            return finish({"say": say + " (검색이 꺼져 있어 못 찾아봤어 — ⚙설정에서 검색을 켜줘)",
+                    "source": "모름(검색 꺼짐)", "mind": mind})
         try:
             with self.lock:
                 info = self._search_and_learn(w)
@@ -1031,17 +1083,17 @@ class Baby:
             src = (info or {}).get("source") or "인터넷"
             err = (info or {}).get("error")
             if summ:
-                return {"say": f"나도 잘 몰랐는데 찾아봤어. {summ[:400]}",
-                        "source": src, "mind": "모르는 것 → 검색해서 알려줌"}
+                return finish({"say": f"나도 잘 몰랐는데 찾아봤어. {summ[:400]}",
+                        "source": src, "mind": "모르는 것 → 검색해서 알려줌"})
             elif err:
-                return {"say": f"'{w}' 찾아보려는데 잘 안 됐어. ({err[:80]})",
-                        "source": src, "mind": "검색 시도했지만 실패"}
+                return finish({"say": f"'{w}' 찾아보려는데 잘 안 됐어. ({err[:80]})",
+                        "source": src, "mind": "검색 시도했지만 실패"})
             else:
-                return {"say": f"'{w}' 찾아봤는데 확실한 내용을 못 가져왔어.",
-                        "source": src, "mind": "검색했지만 내용 없음"}
+                return finish({"say": f"'{w}' 찾아봤는데 확실한 내용을 못 가져왔어.",
+                        "source": src, "mind": "검색했지만 내용 없음"})
         except Exception as e:
-            return {"say": f"찾아보다 문제가 생겼어: {type(e).__name__}",
-                    "source": "오류", "mind": str(e)[:80]}
+            return finish({"say": f"찾아보다 문제가 생겼어: {type(e).__name__}",
+                    "source": "오류", "mind": str(e)[:80]})
 
     def _respond(self, word):
         """진짜 대화: 한 마디를 받아 응답한다.
@@ -1116,7 +1168,8 @@ class Baby:
         if thoughts:
             t = thoughts[0]["sentence"]
             return {"say": f"아, {ko_name}? {t}.{_extra}",
-                    "mind": f"아는 것 + 추론을 보탬 ({thoughts[0]['because']})"}
+                    "mind": f"아는 것 + 추론을 보탬 ({thoughts[0]['because']})",
+                    "beliefs_used": [self._belief_key(key, "is_a", self.isa[key])]}
         if why:
             return {"say": f"{ko_name}? 그건 {why[0]['because']} {why[0]['how']} 그래.{_extra}",
                     "mind": "아는 인과를 보탬"}
@@ -1435,7 +1488,7 @@ class Baby:
                         if link not in self.relations[thing]:
                             self.relations[thing].append(link)
                     # 설명에서 분류(~은 ~이다)를 배운다 — 정확한 추론의 재료
-                    self.learn_isa(thing, info.get("summary"))
+                    self.learn_isa(thing, info.get("summary"), source=info.get("source"))
                     self.learn_cause(thing, info.get("summary"))
                     # 6단계(진짜 이해): 관계망도 배운다 (부분-전체·가짐·반대·인과)
                     self.learn_relation(thing, info.get("summary"), source=info.get("source"))
@@ -1889,7 +1942,7 @@ class Baby:
                     "mind": "(35) 사람이 말한 문장에서 배움 — 말한 걸 추론 재료로"}
         return None
 
-    def learn_isa(self, word, summary):
+    def learn_isa(self, word, summary, source=None):
         """설명에서 분류를 배운다. 단, 기존과 다른 분류가 오면 덮어쓰지 않고
            '모순'으로 표시해 의심한다(아무거나 안 믿기)."""
         if not hasattr(self, "isa"):
@@ -1899,9 +1952,12 @@ class Baby:
         b = self._extract_isa(word, summary)
         if not b or b == word:
             return b
+        self.revise_belief_observation(word, "is_a", b, source=source,
+                                       evidence=summary)
         old = self.isa.get(word)
         if old is None:
-            self.isa[word] = b          # 처음 배움 — 믿는다
+            # 처음 들은 주장은 후보로만 보존한다. 검증 전에는 추론용 isa에 넣지 않는다.
+            return b
         elif old != b and not self._same_branch(old, b):
             # (34) 분류는 어긋나는데 '같이 쓰는 말'이 겹치면 — 비유로 알아듣는다.
             #  예) "시간은 돈이다": 시간≠돈이지만 둘 다 '쓰다·아끼다'와 같이 쓰임 → 비유.
@@ -1990,20 +2046,16 @@ class Baby:
                 "note": f"아마 '{word}'은(는) '{best}'일 것 같다"}
 
     def verify_hypothesis(self, word):
-        """가설을 검증한다: 가설을 세우고, 재조사 결과가 지지하면 채택해 모순 해소.
-           ※ 진짜 검증은 재조사(크롤링)가 필요 — 네 컴퓨터. 여기선 아는 것으로 판단."""
-        h = self.make_hypothesis(word)
-        if not h or not h.get("hypothesis"):
-            return {"word": word, "resolved": False,
-                    "note": (h or {}).get("note", "가설 못 세움")}
-        best = h["hypothesis"]
-        # 가설 채택: 모순 해소 — 믿는 분류를 가설로 정하고 의심에서 내림
-        self.isa[word] = best
-        if hasattr(self, "doubts") and word in self.doubts:
-            self.doubts.pop(word, None)
-        return {"word": word, "resolved": True, "conclusion": best,
-                "because": h.get("because", []),
-                "note": f"검증 결과 '{word}'은(는) '{best}'로 결론(모순 해소)"}
+        """가설 자체를 근거로 채택하지 않고, 별도로 축적된 증거로만 검증한다."""
+        v = self.verify_belief(word, "is_a")
+        return {"word": word, "resolved": v.get("verified", False),
+                "conclusion": v.get("conclusion"), "changed": v.get("changed", False),
+                "previous": v.get("previous"), "evidence": {
+                    "support_sources": v.get("support_sources", []),
+                    "oppose_sources": v.get("oppose_sources", []),
+                }, "note": ("독립 근거를 비교해 결론을 수정함" if v.get("changed")
+                            else "독립 근거로 확인함" if v.get("verified")
+                            else v.get("reason", "검증할 근거 부족"))}
 
     def learn_cause(self, word, summary):
         """설명 문장에서 인과(원인→결과)를 배운다. 'A 때문에 B', 'A면 B'.
@@ -2102,7 +2154,8 @@ class Baby:
     def _search_and_learn(self, thing):
         """모르는 것 하나를 크롤링·번역으로 찾아 환경에 새 사물로 추가하고 학습.
            크롤링(설명·연결단어·사진) + 번역. 못 찾으면 None."""
-        result = {"learned_as": thing, "langs": {}, "summary": None, "links": [], "image": None, "error": None, "source": None}
+        result = {"learned_as": thing, "langs": {}, "summary": None, "links": [],
+                  "image": None, "error": None, "source": None, "sources": []}
         got = False
         # 1) 크롤링/검색: 진짜는 네 컴퓨터.
         try:
@@ -2118,6 +2171,7 @@ class Baby:
                     sites = res.get("sites") or []
                     if sites:
                         urls = [s.get("url") for s in sites if s.get("url")]
+                        result["sources"] = urls
                         result["source"] = "🌐 인터넷 검색 — " + ", ".join(urls[:2]) if urls else "🌐 인터넷 검색"
                     else:
                         result["source"] = "🌐 인터넷 검색"
@@ -2171,6 +2225,34 @@ class Baby:
             self.world.nouns.append(obj)
         return result
 
+    def _verification_evidence_provider(self, task):
+        """Acquire web evidence for one queued classification task."""
+        info = self._search_and_learn(task["subject"]) or {}
+        summary = (info.get("summary") or "").strip()
+        candidate = self._extract_isa(task["subject"], summary) if summary else None
+        if not candidate:
+            return []
+        sources = info.get("sources") or [info.get("source") or "unknown"]
+        return [{"object": candidate, "source": source, "evidence": summary,
+                 "context": task.get("context") or {}} for source in sources]
+
+    def run_verification(self, limit=1):
+        """Run prioritized verification tasks using the configured acquisition tools."""
+        with self.lock:
+            return self.execute_verification(self._verification_evidence_provider, limit)
+
+    def run_action_plan(self, plan, max_replans=2):
+        """Execute and replan atomically against the live environment."""
+        with self.lock:
+            return self.execute_action_plan(
+                plan,
+                lambda action: self.live_one(action_override=action),
+                lambda: list(self.last_signal) if self.last_signal else None,
+                ACTIONS,
+                max_replans=max_replans,
+                learn_observations=False,
+            )
+
     def live(self, steps, injected=None):
         with self.lock:
             evs=[]
@@ -2213,6 +2295,16 @@ class Baby:
         "relations", "isa", "causes", "doubts", "concept_web",
         "grounding", "metaphors", "talk_topics", "partner_said", "first_words",
         "goal_log",
+        "beliefs", "belief_revisions", "answer_history", "verification_tasks",
+        "verification_runs",
+        "contextual_conclusions",
+        "events", "event_seq", "transition_model",
+        "drive_weights",
+        "action_decisions",
+        "plans",
+        "plan_runs",
+        "skills",
+        "calibration_records",
     ]
 
     def save(self):
@@ -2537,8 +2629,16 @@ def _make():
     else:
         print(f'[준비됨] 사물 {_n}개 로드. 이제 살게하기를 눌러도 됩니다.')
     return b
-_current={"baby":_make()}
-def get_baby():return _current["baby"]
+_current={"baby":None}
+def get_baby():
+    """처음 실제로 필요할 때 세상을 만든다.
+
+    모듈을 읽는 것만으로 사전 다운로드와 거대한 초기화를 시작하지 않으므로
+    학습기관을 외부 정답 없이 독립적으로 시험할 수 있다.
+    """
+    if _current["baby"] is None:
+        _current["baby"]=_make()
+    return _current["baby"]
 def reset_baby(mem_len=2):
     if os.path.exists(MEMORY_FILE):os.remove(MEMORY_FILE)
     _current["baby"]=Baby(mem_len=mem_len); return _current["baby"]
