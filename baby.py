@@ -4,6 +4,7 @@ from action_selection import ActionSelectionMixin
 from belief_system import EvidenceBeliefMixin
 from experience import ExperienceMemoryMixin
 from motivation import IntrinsicMotivationMixin
+from plan_executor import PlanExecutionMixin
 from planner import PlannerMixin
 from world_model import WorldModelMixin
 try:
@@ -520,7 +521,8 @@ def link_translations_into(world, eng_words, want_langs=None):
 
 
 class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
-           IntrinsicMotivationMixin, PlannerMixin, WorldModelMixin):
+           IntrinsicMotivationMixin, PlannerMixin, PlanExecutionMixin,
+           WorldModelMixin):
     def __init__(self, mem_len=2):
         import threading as _th
         self.lock = _th.RLock()   # 자동 스레드와 메인이 동시에 안 건드리게
@@ -536,6 +538,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
         self.events=[]; self.event_seq=0; self.transition_model={}
         self.action_decisions=[]
         self.plans=[]
+        self.plan_runs=[]
         self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
@@ -601,9 +604,9 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
                     out.append(obj); break
         return out
 
-    def live_one(self, injected=None):
+    def live_one(self, injected=None, action_override=None):
         guess=self.predict()
-        action=self.choose_action()
+        action=action_override if action_override in ACTIONS else self.choose_action()
         prev=self.last_signal
         years=self.lived/TICKS_PER_YEAR
         if injected is not None:
@@ -2234,6 +2237,18 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
         with self.lock:
             return self.execute_verification(self._verification_evidence_provider, limit)
 
+    def run_action_plan(self, plan, max_replans=2):
+        """Execute and replan atomically against the live environment."""
+        with self.lock:
+            return self.execute_action_plan(
+                plan,
+                lambda action: self.live_one(action_override=action),
+                lambda: list(self.last_signal) if self.last_signal else None,
+                ACTIONS,
+                max_replans=max_replans,
+                learn_observations=False,
+            )
+
     def live(self, steps, injected=None):
         with self.lock:
             evs=[]
@@ -2283,6 +2298,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
         "drive_weights",
         "action_decisions",
         "plans",
+        "plan_runs",
     ]
 
     def save(self):

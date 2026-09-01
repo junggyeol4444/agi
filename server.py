@@ -173,6 +173,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok":True,"plan":b.plan_actions(
                 state, goal, actions, data.get("max_depth",3),
                 action_costs=data.get("action_costs") if isinstance(data.get("action_costs"),dict) else None)})
+        elif self.path=="/execute-plan":
+            # 계획 행동을 실제 환경에 적용하고 예상과 다르면 현재 상태에서 재계획한다.
+            b=baby.get_baby()
+            plan=data.get("plan") if isinstance(data.get("plan"),dict) else {}
+            run=b.run_action_plan(plan, data.get("max_replans",2))
+            self._json({"ok":True,"run":run})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None
