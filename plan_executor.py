@@ -16,7 +16,7 @@ class PlanExecutionMixin:
         current_plan = dict(plan)
         run = {"goal": goal, "started_at": getattr(self, "lived", 0),
                "start": observe_state(), "steps": [], "replans": 0,
-               "status": "running"}
+               "status": "running", "skill_id": plan.get("skill_id")}
         while True:
             actions = list(current_plan.get("actions") or [])
             expected_states = list(current_plan.get("states") or [])

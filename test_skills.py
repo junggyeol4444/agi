@@ -60,6 +60,49 @@ class SkillLearningTests(unittest.TestCase):
         self.assertIsNone(learned)
         self.assertEqual(host.skills, {})
 
+    def test_skill_generalizes_only_shared_start_conditions(self):
+        host = SkillHost()
+        for room in ("kitchen", "bedroom"):
+            host.observe_skill_run({
+                "start": {"room": room, "door": "closed"},
+                "goal": {"door": "open"}, "status": "completed",
+                "steps": [{"action": "open"}],
+            })
+
+        reusable = host.recall_skill(
+            {"room": "office", "door": "closed"}, {"door": "open"})
+        rejected = host.recall_skill(
+            {"room": "office", "door": "open"}, {"door": "open"})
+
+        self.assertIsNotNone(reusable)
+        self.assertEqual(reusable["preconditions"]["required"], {"door": "closed"})
+        self.assertIsNone(rejected)
+
+    def test_failed_reuse_lowers_skill_reliability(self):
+        host = SkillHost()
+        run = {"start": "room", "goal": "garden", "status": "completed",
+               "steps": [{"action": "walk"}]}
+        skill = host.observe_skill_run(run)
+        skill = host.observe_skill_run(run)
+
+        failed = host.observe_skill_run({"start": "room", "goal": "garden",
+                                         "status": "incomplete",
+                                         "skill_id": skill["id"],
+                                         "steps": [{"action": "walk"}]})
+
+        self.assertEqual(failed["status"], "unreliable")
+        self.assertIn("room", failed["excluded_states"])
+        self.assertIsNone(host.recall_skill("room", "garden"))
+
+    def test_no_shared_condition_does_not_generalize_everywhere(self):
+        host = SkillHost()
+        for start in ({"mode": "a"}, {"place": "b"}):
+            host.observe_skill_run({"start": start, "goal": "done",
+                                    "status": "completed",
+                                    "steps": [{"action": "act"}]})
+
+        self.assertIsNone(host.recall_skill({"unseen": "c"}, "done"))
+
 
 if __name__ == "__main__":
     unittest.main()
