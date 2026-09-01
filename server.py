@@ -164,6 +164,15 @@ class Handler(BaseHTTPRequestHandler):
             b=baby.get_baby()
             self._json({"ok":True,"runs":b.run_verification(data.get("limit",1)),
                         "queue":b.verification_queue(10)})
+        elif self.path=="/plan-actions":
+            # 학습한 세계 모델만 사용해 목표 상태까지 짧은 행동열을 찾는다.
+            b=baby.get_baby()
+            state=data.get("state", list(b.last_signal) if b.last_signal else None)
+            goal=data.get("goal")
+            actions=data.get("actions") if isinstance(data.get("actions"),list) else baby.ACTIONS
+            self._json({"ok":True,"plan":b.plan_actions(
+                state, goal, actions, data.get("max_depth",3),
+                action_costs=data.get("action_costs") if isinstance(data.get("action_costs"),dict) else None)})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None

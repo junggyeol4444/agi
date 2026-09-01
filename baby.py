@@ -4,6 +4,7 @@ from action_selection import ActionSelectionMixin
 from belief_system import EvidenceBeliefMixin
 from experience import ExperienceMemoryMixin
 from motivation import IntrinsicMotivationMixin
+from planner import PlannerMixin
 from world_model import WorldModelMixin
 try:
     import vision
@@ -519,7 +520,7 @@ def link_translations_into(world, eng_words, want_langs=None):
 
 
 class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
-           IntrinsicMotivationMixin, WorldModelMixin):
+           IntrinsicMotivationMixin, PlannerMixin, WorldModelMixin):
     def __init__(self, mem_len=2):
         import threading as _th
         self.lock = _th.RLock()   # 자동 스레드와 메인이 동시에 안 건드리게
@@ -534,6 +535,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
         self.contextual_conclusions={}
         self.events=[]; self.event_seq=0; self.transition_model={}
         self.action_decisions=[]
+        self.plans=[]
         self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
@@ -2280,6 +2282,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
         "events", "event_seq", "transition_model",
         "drive_weights",
         "action_decisions",
+        "plans",
     ]
 
     def save(self):
