@@ -19,6 +19,20 @@ class PlannerMixin:
         if self._goal_reached(state, goal):
             return {"status": "achieved", "actions": [], "states": [state],
                     "confidence": 1.0, "reason": "이미 목표 상태"}
+        if hasattr(self, "recall_skill"):
+            skill = self.recall_skill(state, goal)
+            if skill:
+                result = {"status": "planned", "actions": list(skill["actions"]),
+                          "states": [state], "confidence": skill["success_rate"],
+                          "expected_value": 0.0, "cost": 0.0,
+                          "reason": "반복 성공해 압축한 기술을 재사용",
+                          "skill_id": skill["id"], "start": state, "goal": goal,
+                          "max_depth": max_depth, "at": getattr(self, "lived", 0)}
+                if not isinstance(getattr(self, "plans", None), list):
+                    self.plans = []
+                self.plans.append(result)
+                self.plans = self.plans[-300:]
+                return result
         frontier = [{"state": state, "actions": [], "states": [state],
                      "confidence": 1.0, "value": 0.0, "cost": 0.0}]
         best = None

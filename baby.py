@@ -6,6 +6,7 @@ from experience import ExperienceMemoryMixin
 from motivation import IntrinsicMotivationMixin
 from plan_executor import PlanExecutionMixin
 from planner import PlannerMixin
+from skills import SkillLearningMixin
 from world_model import WorldModelMixin
 try:
     import vision
@@ -522,7 +523,7 @@ def link_translations_into(world, eng_words, want_langs=None):
 
 class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
            IntrinsicMotivationMixin, PlannerMixin, PlanExecutionMixin,
-           WorldModelMixin):
+           SkillLearningMixin, WorldModelMixin):
     def __init__(self, mem_len=2):
         import threading as _th
         self.lock = _th.RLock()   # 자동 스레드와 메인이 동시에 안 건드리게
@@ -539,6 +540,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
         self.action_decisions=[]
         self.plans=[]
         self.plan_runs=[]
+        self.skills={}
         self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
@@ -2299,6 +2301,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
         "action_decisions",
         "plans",
         "plan_runs",
+        "skills",
     ]
 
     def save(self):

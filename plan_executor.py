@@ -15,7 +15,8 @@ class PlanExecutionMixin:
         goal = plan.get("goal") if goal is None else goal
         current_plan = dict(plan)
         run = {"goal": goal, "started_at": getattr(self, "lived", 0),
-               "steps": [], "replans": 0, "status": "running"}
+               "start": observe_state(), "steps": [], "replans": 0,
+               "status": "running"}
         while True:
             actions = list(current_plan.get("actions") or [])
             expected_states = list(current_plan.get("states") or [])
@@ -62,4 +63,6 @@ class PlanExecutionMixin:
             self.plan_runs = []
         self.plan_runs.append(run)
         self.plan_runs = self.plan_runs[-200:]
+        if hasattr(self, "observe_skill_run"):
+            run["skill"] = self.observe_skill_run(run)
         return run
