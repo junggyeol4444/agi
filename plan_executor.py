@@ -59,6 +59,12 @@ class PlanExecutionMixin:
                 run["status"] = "blocked"
                 break
         run["finished_at"] = getattr(self, "lived", 0)
+        if hasattr(self, "record_confidence_outcome"):
+            run["calibration"] = self.record_confidence_outcome(
+                "plan", current_plan.get("confidence", plan.get("confidence", 0.0)),
+                run["status"] == "completed",
+                context={"goal": goal, "replans": run["replans"]},
+            )
         if not isinstance(getattr(self, "plan_runs", None), list):
             self.plan_runs = []
         self.plan_runs.append(run)

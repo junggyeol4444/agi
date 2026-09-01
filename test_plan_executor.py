@@ -1,15 +1,18 @@
 import unittest
 
 from plan_executor import PlanExecutionMixin
+from metacognition import MetacognitionMixin
 from planner import PlannerMixin
 from world_model import WorldModelMixin
 
 
-class ExecutionHost(PlanExecutionMixin, PlannerMixin, WorldModelMixin):
+class ExecutionHost(PlanExecutionMixin, PlannerMixin, MetacognitionMixin,
+                    WorldModelMixin):
     def __init__(self):
         self.transition_model = {}
         self.plans = []
         self.plan_runs = []
+        self.calibration_records = []
         self.lived = 1
 
 
@@ -33,6 +36,8 @@ class PlanExecutorTests(unittest.TestCase):
 
         self.assertEqual(run["status"], "completed")
         self.assertEqual([step["action"] for step in run["steps"]], ["open", "walk"])
+        self.assertTrue(run["calibration"]["succeeded"])
+        self.assertEqual(host.calibration_report("plan")["count"], 1)
 
     def test_deviation_updates_model_and_replans(self):
         host = ExecutionHost()

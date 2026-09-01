@@ -179,6 +179,11 @@ class Handler(BaseHTTPRequestHandler):
             plan=data.get("plan") if isinstance(data.get("plan"),dict) else {}
             run=b.run_action_plan(plan, data.get("max_replans",2))
             self._json({"ok":True,"run":run})
+        elif self.path=="/calibration":
+            # 자신이 말한 확신과 실제 성공률이 맞는지 수치로 확인한다.
+            b=baby.get_baby()
+            kind=(data.get("kind") or "").strip() or None
+            self._json({"ok":True,"report":b.calibration_report(kind, data.get("bins",5))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None
