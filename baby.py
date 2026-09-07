@@ -4,6 +4,7 @@ from action_selection import ActionSelectionMixin
 from belief_system import EvidenceBeliefMixin
 from concept_learning import ConceptLearningMixin
 from experience import ExperienceMemoryMixin
+from intervention_learning import InterventionLearningMixin
 from metacognition import MetacognitionMixin
 from motivation import IntrinsicMotivationMixin
 from plan_executor import PlanExecutionMixin
@@ -524,7 +525,7 @@ def link_translations_into(world, eng_words, want_langs=None):
 
 
 class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
-           ExperienceMemoryMixin,
+           ExperienceMemoryMixin, InterventionLearningMixin,
            MetacognitionMixin, IntrinsicMotivationMixin, PlannerMixin, PlanExecutionMixin,
            SkillLearningMixin, WorldModelMixin):
     def __init__(self, mem_len=2):
@@ -546,6 +547,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         self.skills={}
         self.calibration_records=[]
         self.induced_concepts={}; self.concept_seq=0
+        self.intervention_trials={}
         self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
@@ -719,6 +721,8 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
                 if lng is not None:
                     self.hear_sentence(lng,s1,s2)
         self.last_signal=actual; self.last_action=action; self.lived+=1
+        causal_effect = (self.record_intervention(list(prev), action, list(actual))
+                         if prev is not None else None)
         induced = self.observe_features(
             "sensory_state",
             {f"channel_{index}": value for index, value in enumerate(actual)},
@@ -734,7 +738,8 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
             source="direct",
             metadata={"decision": self.action_decisions[-1]
                       if self.action_decisions else None,
-                      "induced_concept": induced["concept_id"]},
+                      "induced_concept": induced["concept_id"],
+                      "intervention_effect": causal_effect},
         )
         if status=="hit": self.last_feeling="안정"
         elif first: self.last_feeling="호기심"
@@ -749,6 +754,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
                 "motivation":motivation,
                 "decision":self.action_decisions[-1] if self.action_decisions else None,
                 "induced_concept":induced,
+                "intervention_effect":causal_effect,
                 "mood":round(self.mood,3),"feeling":self.last_feeling}
 
     def say(self, obj, lang="ko"):
@@ -2316,6 +2322,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         "skills",
         "calibration_records",
         "induced_concepts", "concept_seq",
+        "intervention_trials",
     ]
 
     def save(self):

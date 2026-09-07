@@ -190,6 +190,17 @@ class Handler(BaseHTTPRequestHandler):
             modality=(data.get("modality") or "").strip() or None
             self._json({"ok":True,"concepts":b.learned_concepts(
                 modality, data.get("limit",50))})
+        elif self.path=="/intervention-effect":
+            # 단순 선후관계가 아니라 같은 조건의 실제 비교 개입으로 행동 효과를 평가한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"effect":b.intervention_effect(
+                data.get("context"), data.get("action"), data.get("min_trials",2))})
+        elif self.path=="/intervention-plan":
+            # 인과 효과를 구분하기 위해 아직 부족한 비교 행동을 제안한다.
+            b=baby.get_baby()
+            actions=data.get("actions") if isinstance(data.get("actions"),list) else baby.ACTIONS
+            self._json({"ok":True,"plan":b.propose_intervention(
+                data.get("context"), actions, data.get("min_trials",2))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None
