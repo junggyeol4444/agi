@@ -22,8 +22,15 @@ class PlannerMixin:
         if hasattr(self, "recall_skill"):
             skill = self.recall_skill(state, goal)
             if skill:
+                confidence = skill["success_rate"]
+                calibration = None
+                if hasattr(self, "calibrated_confidence"):
+                    calibration = self.calibrated_confidence("plan", confidence)
+                    confidence = calibration["calibrated"]
                 result = {"status": "planned", "actions": list(skill["actions"]),
-                          "states": [state], "confidence": skill["success_rate"],
+                          "states": [state], "confidence": confidence,
+                          "raw_confidence": skill["success_rate"],
+                          "calibration": calibration,
                           "expected_value": 0.0, "cost": 0.0,
                           "reason": "반복 성공해 압축한 기술을 재사용",
                           "skill_id": skill["id"], "start": state, "goal": goal,
@@ -74,9 +81,17 @@ class PlannerMixin:
                       "states": [state], "confidence": 0.0,
                       "reason": "경험한 전이만으로 목표까지 이어지는 경로를 찾지 못함"}
         else:
+            raw_confidence = best["confidence"]
+            calibration = None
+            confidence = raw_confidence
+            if hasattr(self, "calibrated_confidence"):
+                calibration = self.calibrated_confidence("plan", raw_confidence)
+                confidence = calibration["calibrated"]
             result = {"status": "planned", "actions": best["actions"],
                       "states": best["states"],
-                      "confidence": round(best["confidence"], 6),
+                      "confidence": round(confidence, 6),
+                      "raw_confidence": round(raw_confidence, 6),
+                      "calibration": calibration,
                       "expected_value": round(best["value"], 6),
                       "cost": round(best["cost"], 6),
                       "reason": "학습한 행동 결과를 여러 단계 연결함"}

@@ -37,6 +37,33 @@ class MetacognitionTests(unittest.TestCase):
         self.assertIsNone(report["brier_score"])
         self.assertEqual(report["count"], 0)
 
+    def test_repeated_failures_reduce_future_similar_confidence(self):
+        host = MetacognitionHost()
+        for _ in range(6):
+            host.record_confidence_outcome("plan", 0.95, False)
+
+        adjusted = host.calibrated_confidence("plan", 0.9)
+
+        self.assertTrue(adjusted["adjusted"])
+        self.assertLess(adjusted["calibrated"], adjusted["raw"])
+
+    def test_too_little_history_does_not_overcorrect(self):
+        host = MetacognitionHost()
+        host.record_confidence_outcome("plan", 0.9, False)
+
+        adjusted = host.calibrated_confidence("plan", 0.9)
+
+        self.assertFalse(adjusted["adjusted"])
+        self.assertEqual(adjusted["calibrated"], 0.9)
+
+    def test_invalid_bin_count_falls_back_safely(self):
+        host = MetacognitionHost()
+        host.record_confidence_outcome("plan", 0.5, True)
+
+        report = host.calibration_report("plan", bins="invalid")
+
+        self.assertEqual(report["count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
