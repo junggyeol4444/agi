@@ -22,6 +22,9 @@ class ExperienceMemoryMixin:
         }
         self.events.append(event)
         self.events = self.events[-5000:]
+        absorb = getattr(self, "absorb_episode", None)
+        if callable(absorb):
+            absorb(event)
         return dict(event)
 
     def recall_events(self, kind=None, actor=None, action=None, obj=None,

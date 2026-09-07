@@ -201,6 +201,11 @@ class Handler(BaseHTTPRequestHandler):
             actions=data.get("actions") if isinstance(data.get("actions"),list) else baby.ACTIONS
             self._json({"ok":True,"plan":b.propose_intervention(
                 data.get("context"), actions, data.get("min_trials",2))})
+        elif self.path=="/memory-consolidation":
+            # 반복 경험에서 안정된 규칙과 아직 설명되지 않은 예외를 분리한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"memory":b.consolidate_memory(
+                data.get("min_observations",3))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None
