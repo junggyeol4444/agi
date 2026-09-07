@@ -2,6 +2,7 @@ import random, json, os, time, threading
 from collections import defaultdict, deque
 from action_selection import ActionSelectionMixin
 from belief_system import EvidenceBeliefMixin
+from concept_learning import ConceptLearningMixin
 from experience import ExperienceMemoryMixin
 from metacognition import MetacognitionMixin
 from motivation import IntrinsicMotivationMixin
@@ -522,7 +523,8 @@ def link_translations_into(world, eng_words, want_langs=None):
     return n
 
 
-class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
+class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
+           ExperienceMemoryMixin,
            MetacognitionMixin, IntrinsicMotivationMixin, PlannerMixin, PlanExecutionMixin,
            SkillLearningMixin, WorldModelMixin):
     def __init__(self, mem_len=2):
@@ -543,6 +545,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
         self.plan_runs=[]
         self.skills={}
         self.calibration_records=[]
+        self.induced_concepts={}; self.concept_seq=0
         self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
@@ -716,6 +719,11 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
                 if lng is not None:
                     self.hear_sentence(lng,s1,s2)
         self.last_signal=actual; self.last_action=action; self.lived+=1
+        induced = self.observe_features(
+            "sensory_state",
+            {f"channel_{index}": value for index, value in enumerate(actual)},
+            source="direct",
+        )
         # 언어 문장이 아니라 실제 상태-행동-결과 사건을 기억하고 세계 모델에 반영한다.
         self.record_event(
             "interaction", actor="self", action=action,
@@ -725,7 +733,8 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
             context={"previous_state": list(prev) if prev else None},
             source="direct",
             metadata={"decision": self.action_decisions[-1]
-                      if self.action_decisions else None},
+                      if self.action_decisions else None,
+                      "induced_concept": induced["concept_id"]},
         )
         if status=="hit": self.last_feeling="안정"
         elif first: self.last_feeling="호기심"
@@ -739,6 +748,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
                 "external_reward":reward,"intrinsic_reward":motivation["total"],
                 "motivation":motivation,
                 "decision":self.action_decisions[-1] if self.action_decisions else None,
+                "induced_concept":induced,
                 "mood":round(self.mood,3),"feeling":self.last_feeling}
 
     def say(self, obj, lang="ko"):
@@ -2305,6 +2315,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ExperienceMemoryMixin,
         "plan_runs",
         "skills",
         "calibration_records",
+        "induced_concepts", "concept_seq",
     ]
 
     def save(self):

@@ -184,6 +184,12 @@ class Handler(BaseHTTPRequestHandler):
             b=baby.get_baby()
             kind=(data.get("kind") or "").strip() or None
             self._json({"ok":True,"report":b.calibration_report(kind, data.get("bins",5))})
+        elif self.path=="/induced-concepts":
+            # 정답 이름을 받지 않고 반복 감각 구조에서 스스로 묶은 개념을 보여준다.
+            b=baby.get_baby()
+            modality=(data.get("modality") or "").strip() or None
+            self._json({"ok":True,"concepts":b.learned_concepts(
+                modality, data.get("limit",50))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None
