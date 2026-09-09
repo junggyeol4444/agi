@@ -22,9 +22,11 @@ class ExperienceMemoryMixin:
         }
         self.events.append(event)
         self.events = self.events[-5000:]
-        absorb = getattr(self, "absorb_episode", None)
-        if callable(absorb):
-            absorb(event)
+        # 각 학습기는 새 사건과 관련된 항목만 국소 갱신한다.
+        for hook_name in ("absorb_episode", "absorb_abstraction"):
+            hook = getattr(self, hook_name, None)
+            if callable(hook):
+                hook(event)
         return dict(event)
 
     def recall_events(self, kind=None, actor=None, action=None, obj=None,

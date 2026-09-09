@@ -206,6 +206,13 @@ class Handler(BaseHTTPRequestHandler):
             b=baby.get_baby()
             self._json({"ok":True,"memory":b.consolidate_memory(
                 data.get("min_observations",3))})
+        elif self.path=="/induced-rules":
+            # 여러 문맥의 공통 조건에서 스스로 일반화한 규칙과 예외를 조회한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"rules":b.induced_rules(
+                action=data.get("action"), obj=data.get("object"),
+                general_only=bool(data.get("general_only",False)),
+                limit=data.get("limit",50))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None

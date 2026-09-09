@@ -10,6 +10,7 @@ from metacognition import MetacognitionMixin
 from motivation import IntrinsicMotivationMixin
 from plan_executor import PlanExecutionMixin
 from planner import PlannerMixin
+from rule_induction import RuleInductionMixin
 from skills import SkillLearningMixin
 from world_model import WorldModelMixin
 try:
@@ -528,7 +529,7 @@ def link_translations_into(world, eng_words, want_langs=None):
 class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
            ExperienceMemoryMixin, InterventionLearningMixin,
            MemoryConsolidationMixin, MetacognitionMixin, IntrinsicMotivationMixin,
-           PlannerMixin, PlanExecutionMixin,
+           PlannerMixin, PlanExecutionMixin, RuleInductionMixin,
            SkillLearningMixin, WorldModelMixin):
     def __init__(self, mem_len=2):
         import threading as _th
@@ -551,6 +552,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         self.induced_concepts={}; self.concept_seq=0
         self.intervention_trials={}
         self.semantic_memory={}
+        self.abstract_rules={}
         self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
@@ -2327,6 +2329,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         "induced_concepts", "concept_seq",
         "intervention_trials",
         "semantic_memory",
+        "abstract_rules",
     ]
 
     def save(self):
