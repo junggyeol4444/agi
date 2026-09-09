@@ -10,6 +10,8 @@ class CognitiveHost(CognitiveCycleMixin, ConceptLearningMixin):
         self.concept_seq = 0
         self.working_memory = []
         self.cognitive_cycles = []
+        self.cognitive_seq = 0
+        self.attention_learning = {}
         self.lived = 1
 
     def deliberate(self, question):
@@ -57,6 +59,22 @@ class CognitiveCycleTests(unittest.TestCase):
 
         self.assertEqual(len(host.working_memory), 20)
         self.assertEqual(len(host.cognitive_cycles), 30)
+
+    def test_later_outcomes_train_attention_value(self):
+        host = CognitiveHost()
+        cycle = host.cognitive_cycle({"tone": "high"})
+
+        feedback = host.record_cognitive_outcome(cycle["id"], True, "구별에 도움")
+
+        self.assertTrue(feedback["updated"])
+        self.assertEqual(host.attention_learning["perception"]["usefulness"], 1.0)
+
+    def test_unknown_cycle_feedback_does_not_invent_history(self):
+        host = CognitiveHost()
+
+        feedback = host.record_cognitive_outcome(999, True)
+
+        self.assertFalse(feedback["updated"])
 
 
 if __name__ == "__main__":

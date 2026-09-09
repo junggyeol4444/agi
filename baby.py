@@ -555,7 +555,8 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         self.intervention_trials={}
         self.semantic_memory={}
         self.abstract_rules={}
-        self.working_memory=[]; self.cognitive_cycles=[]
+        self.working_memory=[]; self.cognitive_cycles=[]; self.cognitive_seq=0
+        self.attention_learning={}
         self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
@@ -736,6 +737,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
             {f"channel_{index}": value for index, value in enumerate(actual)},
             source="direct",
         )
+        cognitive = self.cognitive_cycle(perception=induced)
         # 언어 문장이 아니라 실제 상태-행동-결과 사건을 기억하고 세계 모델에 반영한다.
         self.record_event(
             "interaction", actor="self", action=action,
@@ -747,7 +749,8 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
             metadata={"decision": self.action_decisions[-1]
                       if self.action_decisions else None,
                       "induced_concept": induced["concept_id"],
-                      "intervention_effect": causal_effect},
+                      "intervention_effect": causal_effect,
+                      "cognitive_cycle": cognitive["id"]},
         )
         if status=="hit": self.last_feeling="안정"
         elif first: self.last_feeling="호기심"
@@ -763,6 +766,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
                 "decision":self.action_decisions[-1] if self.action_decisions else None,
                 "induced_concept":induced,
                 "intervention_effect":causal_effect,
+                "cognitive_cycle":cognitive,
                 "mood":round(self.mood,3),"feeling":self.last_feeling}
 
     def say(self, obj, lang="ko"):
@@ -2333,7 +2337,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         "intervention_trials",
         "semantic_memory",
         "abstract_rules",
-        "working_memory", "cognitive_cycles",
+        "working_memory", "cognitive_cycles", "cognitive_seq", "attention_learning",
     ]
 
     def save(self):

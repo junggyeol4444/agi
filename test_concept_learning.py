@@ -62,6 +62,8 @@ class ConceptLearningTests(unittest.TestCase):
         self.assertIn(turn["induced_concept"]["concept_id"], agent.induced_concepts)
         self.assertEqual(agent.events[-1]["metadata"]["induced_concept"],
                          turn["induced_concept"]["concept_id"])
+        self.assertEqual(agent.events[-1]["metadata"]["cognitive_cycle"],
+                         turn["cognitive_cycle"]["id"])
 
 
 if __name__ == "__main__":

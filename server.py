@@ -221,6 +221,11 @@ class Handler(BaseHTTPRequestHandler):
                 observation=data.get("observation"), goal=data.get("goal"),
                 question=data.get("question"), actions=actions,
                 modality=data.get("modality","workspace"))})
+        elif self.path=="/cognitive-feedback":
+            # 실제 결과가 나온 뒤 어떤 주의 선택이 유용했는지 학습시킨다.
+            b=baby.get_baby()
+            self._json({"ok":True,"feedback":b.record_cognitive_outcome(
+                data.get("cycle_id"), data.get("useful",False), data.get("reason"))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None
