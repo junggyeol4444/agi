@@ -3,6 +3,7 @@ from collections import defaultdict, deque
 from action_selection import ActionSelectionMixin
 from belief_system import EvidenceBeliefMixin
 from concept_learning import ConceptLearningMixin
+from cognitive_cycle import CognitiveCycleMixin
 from experience import ExperienceMemoryMixin
 from intervention_learning import InterventionLearningMixin
 from memory_consolidation import MemoryConsolidationMixin
@@ -527,6 +528,7 @@ def link_translations_into(world, eng_words, want_langs=None):
 
 
 class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
+           CognitiveCycleMixin,
            ExperienceMemoryMixin, InterventionLearningMixin,
            MemoryConsolidationMixin, MetacognitionMixin, IntrinsicMotivationMixin,
            PlannerMixin, PlanExecutionMixin, RuleInductionMixin,
@@ -553,6 +555,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         self.intervention_trials={}
         self.semantic_memory={}
         self.abstract_rules={}
+        self.working_memory=[]; self.cognitive_cycles=[]
         self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
@@ -2330,6 +2333,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         "intervention_trials",
         "semantic_memory",
         "abstract_rules",
+        "working_memory", "cognitive_cycles",
     ]
 
     def save(self):

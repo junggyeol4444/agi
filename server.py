@@ -213,6 +213,14 @@ class Handler(BaseHTTPRequestHandler):
                 action=data.get("action"), obj=data.get("object"),
                 general_only=bool(data.get("general_only",False)),
                 limit=data.get("limit",50))})
+        elif self.path=="/cognitive-cycle":
+            # 입력마다 모든 기능을 돌리지 않고 현재 가장 필요한 사고 방식 하나를 선택한다.
+            b=baby.get_baby()
+            actions=data.get("actions") if isinstance(data.get("actions"),list) else baby.ACTIONS
+            self._json({"ok":True,"cycle":b.cognitive_cycle(
+                observation=data.get("observation"), goal=data.get("goal"),
+                question=data.get("question"), actions=actions,
+                modality=data.get("modality","workspace"))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None
