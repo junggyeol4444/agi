@@ -271,6 +271,15 @@ class Handler(BaseHTTPRequestHandler):
             event=data.get("event") if isinstance(data.get("event"),dict) else {}
             self._json({"ok":True,"expression":b.compose_event_utterance(
                 data.get("language","ko"), event)})
+        elif self.path=="/observe-scene":
+            # 정답 객체 ID 없이 외형과 이동 연속성으로 물체 정체성을 유지한다.
+            b=baby.get_baby()
+            detections=data.get("detections") if isinstance(data.get("detections"),list) else []
+            self._json({"ok":True,"scene":b.observe_scene(detections, at=data.get("at"))})
+        elif self.path=="/tracked-objects":
+            b=baby.get_baby()
+            self._json({"ok":True,"objects":b.tracked_objects(
+                include_lost=bool(data.get("include_lost",False)))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None
