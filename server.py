@@ -133,6 +133,200 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok":True,"word":word,
                         "hypothesis":b.make_hypothesis(word),
                         "verify":b.verify_hypothesis(word)})
+        elif self.path=="/belief":
+            # 확률 높은 문장을 만드는 게 아니라, 실제로 모은 지지/반박 근거와 수정 이력.
+            word=(data.get("word") or "").strip()
+            context=data.get("context") if isinstance(data.get("context"),dict) else None
+            b=baby.get_baby()
+            self._json({"ok":True,"word":word,"context":context or {},
+                        "beliefs":b.belief_about(word, context=context),
+                        "revisions":[r for r in getattr(b,"belief_revisions",[])
+                                     if r.get("subject")==word]})
+        elif self.path=="/reason":
+            # 모든 입력을 예측하지 않는다. 근거 상태에 따라 조사/보류/검증/회상을 선택한다.
+            word=(data.get("word") or "").strip()
+            context=data.get("context") if isinstance(data.get("context"),dict) else None
+            b=baby.get_baby()
+            self._json({"ok":True,"thought":b.deliberate(word, context=context)})
+        elif self.path=="/verification-plan":
+            # 모순·불확실성을 실제로 확인할 다음 행동과 반증 목표로 바꾼다.
+            word=(data.get("word") or "").strip()
+            relation=(data.get("relation") or "is_a").strip()
+            context=data.get("context") if isinstance(data.get("context"),dict) else None
+            b=baby.get_baby()
+            self._json({"ok":True,"plan":b.make_verification_plan(word, relation, context)})
+        elif self.path=="/verification-queue":
+            # 해결되지 않은 검증 작업을 충돌·재검증 필요도 순으로 반환한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"queue":b.verification_queue(data.get("limit",10))})
+        elif self.path=="/verification-run":
+            # 대기열의 우선 과제를 실제 조사하고 근거 장부에 넣은 뒤 다시 검증한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"runs":b.run_verification(data.get("limit",1)),
+                        "queue":b.verification_queue(10)})
+        elif self.path=="/plan-actions":
+            # 학습한 세계 모델만 사용해 목표 상태까지 짧은 행동열을 찾는다.
+            b=baby.get_baby()
+            state=data.get("state", list(b.last_signal) if b.last_signal else None)
+            goal=data.get("goal")
+            actions=data.get("actions") if isinstance(data.get("actions"),list) else baby.ACTIONS
+            self._json({"ok":True,"plan":b.plan_actions(
+                state, goal, actions, data.get("max_depth",3),
+                action_costs=data.get("action_costs") if isinstance(data.get("action_costs"),dict) else None)})
+        elif self.path=="/execute-plan":
+            # 계획 행동을 실제 환경에 적용하고 예상과 다르면 현재 상태에서 재계획한다.
+            b=baby.get_baby()
+            plan=data.get("plan") if isinstance(data.get("plan"),dict) else {}
+            run=b.run_action_plan(plan, data.get("max_replans",2))
+            self._json({"ok":True,"run":run})
+        elif self.path=="/calibration":
+            # 자신이 말한 확신과 실제 성공률이 맞는지 수치로 확인한다.
+            b=baby.get_baby()
+            kind=(data.get("kind") or "").strip() or None
+            self._json({"ok":True,"report":b.calibration_report(kind, data.get("bins",5))})
+        elif self.path=="/induced-concepts":
+            # 정답 이름을 받지 않고 반복 감각 구조에서 스스로 묶은 개념을 보여준다.
+            b=baby.get_baby()
+            modality=(data.get("modality") or "").strip() or None
+            self._json({"ok":True,"concepts":b.learned_concepts(
+                modality, data.get("limit",50))})
+        elif self.path=="/intervention-effect":
+            # 단순 선후관계가 아니라 같은 조건의 실제 비교 개입으로 행동 효과를 평가한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"effect":b.intervention_effect(
+                data.get("context"), data.get("action"), data.get("min_trials",2))})
+        elif self.path=="/intervention-plan":
+            # 인과 효과를 구분하기 위해 아직 부족한 비교 행동을 제안한다.
+            b=baby.get_baby()
+            actions=data.get("actions") if isinstance(data.get("actions"),list) else baby.ACTIONS
+            self._json({"ok":True,"plan":b.propose_intervention(
+                data.get("context"), actions, data.get("min_trials",2))})
+        elif self.path=="/memory-consolidation":
+            # 반복 경험에서 안정된 규칙과 아직 설명되지 않은 예외를 분리한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"memory":b.consolidate_memory(
+                data.get("min_observations",3))})
+        elif self.path=="/induced-rules":
+            # 여러 문맥의 공통 조건에서 스스로 일반화한 규칙과 예외를 조회한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"rules":b.induced_rules(
+                action=data.get("action"), obj=data.get("object"),
+                general_only=bool(data.get("general_only",False)),
+                limit=data.get("limit",50))})
+        elif self.path=="/cognitive-cycle":
+            # 입력마다 모든 기능을 돌리지 않고 현재 가장 필요한 사고 방식 하나를 선택한다.
+            b=baby.get_baby()
+            actions=data.get("actions") if isinstance(data.get("actions"),list) else baby.ACTIONS
+            self._json({"ok":True,"cycle":b.cognitive_cycle(
+                observation=data.get("observation"), goal=data.get("goal"),
+                question=data.get("question"), actions=actions,
+                modality=data.get("modality","workspace"))})
+        elif self.path=="/cognitive-feedback":
+            # 실제 결과가 나온 뒤 어떤 주의 선택이 유용했는지 학습시킨다.
+            b=baby.get_baby()
+            self._json({"ok":True,"feedback":b.record_cognitive_outcome(
+                data.get("cycle_id"), data.get("useful",False), data.get("reason"))})
+        elif self.path=="/developmental-goals":
+            # 새 개념·예외·근거 충돌에서 스스로 발견한 학습 목표를 반환한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"goals":b.discover_goals(),
+                        "selected":b.select_developmental_goal()})
+        elif self.path=="/developmental-goal-feedback":
+            b=baby.get_baby()
+            self._json({"ok":True,"result":b.record_goal_attempt(
+                data.get("goal_id"), data.get("progress",False), data.get("evidence"))})
+        elif self.path=="/developmental-goal-plan":
+            b=baby.get_baby()
+            self._json({"ok":True,"plan":b.plan_developmental_goal(
+                data.get("goal_id"), data.get("actions"))})
+        elif self.path=="/developmental-goal-run":
+            b=baby.get_baby()
+            self._json({"ok":True,"result":b.advance_developmental_goal(
+                data.get("goal_id"))})
+        elif self.path=="/symbol-meaning":
+            # 다음 단어 확률이 아니라 감각 개념과의 반복 연결·반례로 의미를 조회한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"meaning":b.meaning_of(
+                data.get("language","ko"), data.get("symbol",""))})
+        elif self.path=="/event-language-learn":
+            # 정렬 정답 없이 여러 발화와 사건의 공통 변화를 비교해 역할 의미를 학습한다.
+            b=baby.get_baby()
+            tokens=data.get("tokens") if isinstance(data.get("tokens"),list) else []
+            event=data.get("event") if isinstance(data.get("event"),dict) else {}
+            self._json({"ok":True,"meanings":b.observe_utterance_event(
+                data.get("language","ko"), tokens, event)})
+        elif self.path=="/event-language-understand":
+            b=baby.get_baby()
+            tokens=data.get("tokens") if isinstance(data.get("tokens"),list) else []
+            self._json({"ok":True,"understanding":b.understand_event_utterance(
+                data.get("language","ko"), tokens)})
+        elif self.path=="/grammar-observe":
+            # 토큰 의미가 경험으로 확인된 발화만 사용해 역할 순서를 귀납한다.
+            b=baby.get_baby()
+            tokens=data.get("tokens") if isinstance(data.get("tokens"),list) else []
+            self._json({"ok":True,"result":b.observe_grounded_utterance(
+                data.get("language","ko"), tokens)})
+        elif self.path=="/event-language-express":
+            b=baby.get_baby()
+            event=data.get("event") if isinstance(data.get("event"),dict) else {}
+            self._json({"ok":True,"expression":b.compose_event_utterance(
+                data.get("language","ko"), event)})
+        elif self.path=="/observe-scene":
+            # 정답 객체 ID 없이 외형과 이동 연속성으로 물체 정체성을 유지한다.
+            b=baby.get_baby()
+            detections=data.get("detections") if isinstance(data.get("detections"),list) else []
+            self._json({"ok":True,"scene":b.observe_scene(detections, at=data.get("at"))})
+        elif self.path=="/tracked-objects":
+            b=baby.get_baby()
+            self._json({"ok":True,"objects":b.tracked_objects(
+                include_lost=bool(data.get("include_lost",False)))})
+        elif self.path=="/spatial-relation":
+            b=baby.get_baby()
+            self._json({"ok":True,"relation":b.spatial_relation(
+                data.get("subject"), data.get("reference"),
+                max_age=data.get("max_age"), at=data.get("at"))})
+        elif self.path=="/perspective-observe":
+            # 특정 행위자가 실제로 접한 근거만 그 행위자의 관점에 기록한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"belief":b.observe_for_agent(
+                data.get("agent"), data.get("subject"), data.get("relation","is_a"),
+                data.get("object"), source=data.get("source"),
+                supports=bool(data.get("supports",True)))})
+        elif self.path=="/perspective-compare":
+            b=baby.get_baby()
+            self._json({"ok":True,"comparison":b.compare_perspective(
+                data.get("agent"), data.get("subject"), data.get("relation","is_a"))})
+        elif self.path=="/world-change":
+            # 실제 변화를 본 행위자의 상황 기억만 갱신한다.
+            b=baby.get_baby()
+            observers=data.get("observers") if isinstance(data.get("observers"),list) else []
+            self._json({"ok":True,"change":b.record_world_change(
+                data.get("subject"), data.get("relation","state"), data.get("value"),
+                observers=observers, event_id=data.get("event_id"), at=data.get("at"))})
+        elif self.path=="/perspective-state":
+            b=baby.get_baby()
+            self._json({"ok":True,"comparison":b.compare_situational_perspective(
+                data.get("agent"), data.get("subject"), data.get("relation","state"))})
+        elif self.path=="/expected-search":
+            b=baby.get_baby()
+            self._json({"ok":True,"result":b.expected_search_location(
+                data.get("agent"), data.get("subject"), data.get("relation","location"))})
+        elif self.path=="/observe-agent-action":
+            # 반복 행동 결과에서 목표 가설을 만들되 직접 관찰 사실과 구분한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"intention":b.observe_agent_action(
+                data.get("agent"), data.get("action"), data.get("before",{}),
+                data.get("after",{}), context=data.get("context"),
+                event_id=data.get("event_id"))})
+        elif self.path=="/agent-intention":
+            b=baby.get_baby()
+            self._json({"ok":True,"comparison":b.compare_stated_and_inferred_intention(
+                data.get("agent"))})
+        elif self.path=="/corrections":
+            # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
+            word=(data.get("word") or "").strip() or None
+            b=baby.get_baby()
+            self._json({"ok":True,"corrections":b.pending_corrections(word)})
         elif self.path=="/doubts":
             # 모순 알아채기: 안 맞는 것 의심 + 재조사
             b=baby.get_baby()
