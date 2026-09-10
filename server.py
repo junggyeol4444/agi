@@ -248,6 +248,18 @@ class Handler(BaseHTTPRequestHandler):
             b=baby.get_baby()
             self._json({"ok":True,"meaning":b.meaning_of(
                 data.get("language","ko"), data.get("symbol",""))})
+        elif self.path=="/event-language-learn":
+            # 정렬 정답 없이 여러 발화와 사건의 공통 변화를 비교해 역할 의미를 학습한다.
+            b=baby.get_baby()
+            tokens=data.get("tokens") if isinstance(data.get("tokens"),list) else []
+            event=data.get("event") if isinstance(data.get("event"),dict) else {}
+            self._json({"ok":True,"meanings":b.observe_utterance_event(
+                data.get("language","ko"), tokens, event)})
+        elif self.path=="/event-language-understand":
+            b=baby.get_baby()
+            tokens=data.get("tokens") if isinstance(data.get("tokens"),list) else []
+            self._json({"ok":True,"understanding":b.understand_event_utterance(
+                data.get("language","ko"), tokens)})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None
