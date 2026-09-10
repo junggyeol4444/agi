@@ -8,6 +8,7 @@ from event_language import EventLanguageMixin
 from experience import ExperienceMemoryMixin
 from goal_discovery import GoalDiscoveryMixin
 from goal_executor import GoalExecutionMixin
+from grammar_induction import GrammarInductionMixin
 from intervention_learning import InterventionLearningMixin
 from memory_consolidation import MemoryConsolidationMixin
 from metacognition import MetacognitionMixin
@@ -534,7 +535,7 @@ def link_translations_into(world, eng_words, want_langs=None):
 class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
            CognitiveCycleMixin,
            EventLanguageMixin, ExperienceMemoryMixin,
-           GoalDiscoveryMixin, GoalExecutionMixin,
+           GoalDiscoveryMixin, GoalExecutionMixin, GrammarInductionMixin,
            InterventionLearningMixin,
            MemoryConsolidationMixin, MetacognitionMixin, IntrinsicMotivationMixin,
            PlannerMixin, PlanExecutionMixin, RuleInductionMixin,
@@ -566,6 +567,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         self.developmental_goals={}
         self.symbol_groundings={}
         self.event_lexicon={}
+        self.grammar_memory={}
         self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
@@ -2354,6 +2356,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         "developmental_goals",
         "symbol_groundings",
         "event_lexicon",
+        "grammar_memory",
     ]
 
     def save(self):
