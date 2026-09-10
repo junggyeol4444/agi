@@ -21,6 +21,7 @@ from rule_induction import RuleInductionMixin
 from skills import SkillLearningMixin
 from spatial_model import SpatialModelMixin
 from symbol_grounding import SymbolGroundingMixin
+from theory_of_mind import TheoryOfMindMixin
 from world_model import WorldModelMixin
 try:
     import vision
@@ -543,7 +544,8 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
            MemoryConsolidationMixin, MetacognitionMixin, IntrinsicMotivationMixin,
            ObjectTrackingMixin, PerspectiveModelMixin,
            PlannerMixin, PlanExecutionMixin, RuleInductionMixin,
-           SkillLearningMixin, SpatialModelMixin, SymbolGroundingMixin, WorldModelMixin):
+           SkillLearningMixin, SpatialModelMixin, SymbolGroundingMixin,
+           TheoryOfMindMixin, WorldModelMixin):
     def __init__(self, mem_len=2):
         import threading as _th
         self.lock = _th.RLock()   # 자동 스레드와 메인이 동시에 안 건드리게
@@ -575,6 +577,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         self.object_tracks={}; self.object_seq=0; self.scene_history=[]
         self.spatial_relations={}
         self.perspective_models={}
+        self.situational_facts={}; self.perspective_states={}
         self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
@@ -2367,6 +2370,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         "object_tracks", "object_seq", "scene_history",
         "spatial_relations",
         "perspective_models",
+        "situational_facts", "perspective_states",
     ]
 
     def save(self):

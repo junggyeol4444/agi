@@ -296,6 +296,21 @@ class Handler(BaseHTTPRequestHandler):
             b=baby.get_baby()
             self._json({"ok":True,"comparison":b.compare_perspective(
                 data.get("agent"), data.get("subject"), data.get("relation","is_a"))})
+        elif self.path=="/world-change":
+            # 실제 변화를 본 행위자의 상황 기억만 갱신한다.
+            b=baby.get_baby()
+            observers=data.get("observers") if isinstance(data.get("observers"),list) else []
+            self._json({"ok":True,"change":b.record_world_change(
+                data.get("subject"), data.get("relation","state"), data.get("value"),
+                observers=observers, event_id=data.get("event_id"), at=data.get("at"))})
+        elif self.path=="/perspective-state":
+            b=baby.get_baby()
+            self._json({"ok":True,"comparison":b.compare_situational_perspective(
+                data.get("agent"), data.get("subject"), data.get("relation","state"))})
+        elif self.path=="/expected-search":
+            b=baby.get_baby()
+            self._json({"ok":True,"result":b.expected_search_location(
+                data.get("agent"), data.get("subject"), data.get("relation","location"))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None
