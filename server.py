@@ -280,6 +280,11 @@ class Handler(BaseHTTPRequestHandler):
             b=baby.get_baby()
             self._json({"ok":True,"objects":b.tracked_objects(
                 include_lost=bool(data.get("include_lost",False)))})
+        elif self.path=="/spatial-relation":
+            b=baby.get_baby()
+            self._json({"ok":True,"relation":b.spatial_relation(
+                data.get("subject"), data.get("reference"),
+                max_age=data.get("max_age"), at=data.get("at"))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None

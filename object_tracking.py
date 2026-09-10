@@ -99,6 +99,9 @@ class ObjectTrackingMixin:
                              if value.get("status") == "lost"]}
         self.scene_history.append(snapshot)
         self.scene_history = self.scene_history[-500:]
+        update_space = getattr(self, "update_spatial_model", None)
+        if callable(update_space):
+            snapshot["spatial"] = update_space(at=moment)
         return snapshot
 
     def tracked_objects(self, include_lost=False):
