@@ -15,6 +15,7 @@ from plan_executor import PlanExecutionMixin
 from planner import PlannerMixin
 from rule_induction import RuleInductionMixin
 from skills import SkillLearningMixin
+from symbol_grounding import SymbolGroundingMixin
 from world_model import WorldModelMixin
 try:
     import vision
@@ -535,7 +536,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
            InterventionLearningMixin,
            MemoryConsolidationMixin, MetacognitionMixin, IntrinsicMotivationMixin,
            PlannerMixin, PlanExecutionMixin, RuleInductionMixin,
-           SkillLearningMixin, WorldModelMixin):
+           SkillLearningMixin, SymbolGroundingMixin, WorldModelMixin):
     def __init__(self, mem_len=2):
         import threading as _th
         self.lock = _th.RLock()   # 자동 스레드와 메인이 동시에 안 건드리게
@@ -561,6 +562,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         self.working_memory=[]; self.cognitive_cycles=[]; self.cognitive_seq=0
         self.attention_learning={}
         self.developmental_goals={}
+        self.symbol_groundings={}
         self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
@@ -742,6 +744,9 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
             source="direct",
         )
         cognitive = self.cognitive_cycle(perception=induced)
+        grounded_symbol = (self.observe_symbol(
+            heard_lang, heard_word, induced["concept_id"], source="direct")
+            if heard_word is not None and heard_lang is not None else None)
         # 언어 문장이 아니라 실제 상태-행동-결과 사건을 기억하고 세계 모델에 반영한다.
         self.record_event(
             "interaction", actor="self", action=action,
@@ -771,6 +776,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
                 "induced_concept":induced,
                 "intervention_effect":causal_effect,
                 "cognitive_cycle":cognitive,
+                "grounded_symbol":grounded_symbol,
                 "mood":round(self.mood,3),"feeling":self.last_feeling}
 
     def say(self, obj, lang="ko"):
@@ -2343,6 +2349,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         "abstract_rules",
         "working_memory", "cognitive_cycles", "cognitive_seq", "attention_learning",
         "developmental_goals",
+        "symbol_groundings",
     ]
 
     def save(self):

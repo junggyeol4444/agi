@@ -243,6 +243,11 @@ class Handler(BaseHTTPRequestHandler):
             b=baby.get_baby()
             self._json({"ok":True,"result":b.advance_developmental_goal(
                 data.get("goal_id"))})
+        elif self.path=="/symbol-meaning":
+            # 다음 단어 확률이 아니라 감각 개념과의 반복 연결·반례로 의미를 조회한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"meaning":b.meaning_of(
+                data.get("language","ko"), data.get("symbol",""))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None
