@@ -226,6 +226,15 @@ class Handler(BaseHTTPRequestHandler):
             b=baby.get_baby()
             self._json({"ok":True,"feedback":b.record_cognitive_outcome(
                 data.get("cycle_id"), data.get("useful",False), data.get("reason"))})
+        elif self.path=="/developmental-goals":
+            # 새 개념·예외·근거 충돌에서 스스로 발견한 학습 목표를 반환한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"goals":b.discover_goals(),
+                        "selected":b.select_developmental_goal()})
+        elif self.path=="/developmental-goal-feedback":
+            b=baby.get_baby()
+            self._json({"ok":True,"result":b.record_goal_attempt(
+                data.get("goal_id"), data.get("progress",False), data.get("evidence"))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None

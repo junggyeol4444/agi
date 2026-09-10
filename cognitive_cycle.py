@@ -31,7 +31,8 @@ class CognitiveCycleMixin:
         if perception is not None:
             candidates.append({
                 "kind": "perception",
-                "priority": 0.45 + 0.25 * self._attention_value("perception"),
+                "priority": ((0.45 if perception.get("created") else 0.1)
+                             + 0.25 * self._attention_value("perception")),
                 "reason": "새 감각 구조" if perception.get("created") else "익숙한 감각 구조",
                 "data": perception,
             })
@@ -65,6 +66,16 @@ class CognitiveCycleMixin:
                                "priority": 0.6 + 0.25 * self._attention_value("verification"),
                                "reason": "해결되지 않은 믿음 충돌", "data": queue[0]})
 
+        autonomous_goal = (self.select_developmental_goal()
+                           if hasattr(self, "select_developmental_goal") else None)
+        if autonomous_goal and goal is None and question is None:
+            candidates.append({
+                "kind": "developmental_goal",
+                "priority": 0.25 + 0.4 * autonomous_goal.get("priority", 0.0),
+                "reason": autonomous_goal.get("reason", "스스로 발견한 학습 목표"),
+                "data": autonomous_goal,
+            })
+
         if not candidates:
             candidates.append({"kind": "idle", "priority": 0.1,
                                "reason": "주의를 요구하는 입력 없음", "data": None})
@@ -77,6 +88,8 @@ class CognitiveCycleMixin:
             mode = "verify" if focus["data"].get("action") == "verify" else "reason"
         elif focus["kind"] == "goal":
             mode = "plan"
+        elif focus["kind"] == "developmental_goal":
+            mode = "investigate"
         elif focus["kind"] == "perception":
             mode = "learn" if focus["data"]["created"] else "recognize"
         else:
