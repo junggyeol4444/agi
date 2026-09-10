@@ -28,6 +28,7 @@ class GoalDiscoveryMixin:
 
     def discover_goals(self):
         """Refresh goals from weak concepts, variable rules, and belief conflicts."""
+        self.refresh_developmental_goals()
         discovered = []
         for concept in (getattr(self, "induced_concepts", {}) or {}).values():
             observations = int(concept.get("observations", 0))
@@ -47,6 +48,41 @@ class GoalDiscoveryMixin:
                 discovered.append(self._upsert_developmental_goal(
                     "verify_belief", target, "충돌하거나 부족한 근거를 확인", 1.0))
         return [dict(goal) for goal in discovered]
+
+    def refresh_developmental_goals(self):
+        """Close goals only when the underlying learned state supplies evidence."""
+        completed = []
+        for goal in (getattr(self, "developmental_goals", {}) or {}).values():
+            if goal.get("status") == "completed":
+                continue
+            kind, target = goal.get("kind"), goal.get("target")
+            evidence = None
+            if kind == "stabilize_concept":
+                concept = (getattr(self, "induced_concepts", {}) or {}).get(target, {})
+                if int(concept.get("observations", 0)) >= 3:
+                    evidence = {"observations": concept["observations"]}
+            elif kind == "explain_exception":
+                rule = (getattr(self, "abstract_rules", {}) or {}).get(target, {})
+                if rule.get("status") == "general_rule":
+                    evidence = {"rule_status": "general_rule",
+                                "reliability": rule.get("reliability")}
+            elif kind == "verify_belief":
+                for task in (getattr(self, "verification_tasks", {}) or {}).values():
+                    if (task.get("subject") == (target or {}).get("subject")
+                            and task.get("relation", "is_a") == (target or {}).get("relation")
+                            and task.get("status") in ("resolved", "completed")):
+                        evidence = {"verification_task": task.get("id")}
+                        break
+            if evidence is not None:
+                goal["knowledge_gap"] = 0.0
+                goal["status"] = "completed"
+                goal["completed_at"] = getattr(self, "lived", 0)
+                goal["history"].append({"at": getattr(self, "lived", 0),
+                                        "progress": True, "evidence": evidence,
+                                        "automatic": True})
+                goal["history"] = goal["history"][-50:]
+                completed.append(dict(goal))
+        return completed
 
     def select_developmental_goal(self):
         self.discover_goals()

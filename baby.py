@@ -6,6 +6,7 @@ from concept_learning import ConceptLearningMixin
 from cognitive_cycle import CognitiveCycleMixin
 from experience import ExperienceMemoryMixin
 from goal_discovery import GoalDiscoveryMixin
+from goal_executor import GoalExecutionMixin
 from intervention_learning import InterventionLearningMixin
 from memory_consolidation import MemoryConsolidationMixin
 from metacognition import MetacognitionMixin
@@ -530,7 +531,8 @@ def link_translations_into(world, eng_words, want_langs=None):
 
 class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
            CognitiveCycleMixin,
-           ExperienceMemoryMixin, GoalDiscoveryMixin, InterventionLearningMixin,
+           ExperienceMemoryMixin, GoalDiscoveryMixin, GoalExecutionMixin,
+           InterventionLearningMixin,
            MemoryConsolidationMixin, MetacognitionMixin, IntrinsicMotivationMixin,
            PlannerMixin, PlanExecutionMixin, RuleInductionMixin,
            SkillLearningMixin, WorldModelMixin):

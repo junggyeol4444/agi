@@ -235,6 +235,14 @@ class Handler(BaseHTTPRequestHandler):
             b=baby.get_baby()
             self._json({"ok":True,"result":b.record_goal_attempt(
                 data.get("goal_id"), data.get("progress",False), data.get("evidence"))})
+        elif self.path=="/developmental-goal-plan":
+            b=baby.get_baby()
+            self._json({"ok":True,"plan":b.plan_developmental_goal(
+                data.get("goal_id"), data.get("actions"))})
+        elif self.path=="/developmental-goal-run":
+            b=baby.get_baby()
+            self._json({"ok":True,"result":b.advance_developmental_goal(
+                data.get("goal_id"))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None
