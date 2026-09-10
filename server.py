@@ -285,6 +285,17 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok":True,"relation":b.spatial_relation(
                 data.get("subject"), data.get("reference"),
                 max_age=data.get("max_age"), at=data.get("at"))})
+        elif self.path=="/perspective-observe":
+            # 특정 행위자가 실제로 접한 근거만 그 행위자의 관점에 기록한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"belief":b.observe_for_agent(
+                data.get("agent"), data.get("subject"), data.get("relation","is_a"),
+                data.get("object"), source=data.get("source"),
+                supports=bool(data.get("supports",True)))})
+        elif self.path=="/perspective-compare":
+            b=baby.get_baby()
+            self._json({"ok":True,"comparison":b.compare_perspective(
+                data.get("agent"), data.get("subject"), data.get("relation","is_a"))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None

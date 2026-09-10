@@ -16,6 +16,7 @@ from motivation import IntrinsicMotivationMixin
 from object_tracking import ObjectTrackingMixin
 from plan_executor import PlanExecutionMixin
 from planner import PlannerMixin
+from perspective_model import PerspectiveModelMixin
 from rule_induction import RuleInductionMixin
 from skills import SkillLearningMixin
 from spatial_model import SpatialModelMixin
@@ -540,7 +541,8 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
            GoalDiscoveryMixin, GoalExecutionMixin, GrammarInductionMixin,
            InterventionLearningMixin,
            MemoryConsolidationMixin, MetacognitionMixin, IntrinsicMotivationMixin,
-           ObjectTrackingMixin, PlannerMixin, PlanExecutionMixin, RuleInductionMixin,
+           ObjectTrackingMixin, PerspectiveModelMixin,
+           PlannerMixin, PlanExecutionMixin, RuleInductionMixin,
            SkillLearningMixin, SpatialModelMixin, SymbolGroundingMixin, WorldModelMixin):
     def __init__(self, mem_len=2):
         import threading as _th
@@ -572,6 +574,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         self.grammar_memory={}
         self.object_tracks={}; self.object_seq=0; self.scene_history=[]
         self.spatial_relations={}
+        self.perspective_models={}
         self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
@@ -2363,6 +2366,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         "grammar_memory",
         "object_tracks", "object_seq", "scene_history",
         "spatial_relations",
+        "perspective_models",
     ]
 
     def save(self):
