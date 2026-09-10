@@ -9,6 +9,7 @@ from experience import ExperienceMemoryMixin
 from goal_discovery import GoalDiscoveryMixin
 from goal_executor import GoalExecutionMixin
 from grammar_induction import GrammarInductionMixin
+from intention_model import IntentionModelMixin
 from intervention_learning import InterventionLearningMixin
 from memory_consolidation import MemoryConsolidationMixin
 from metacognition import MetacognitionMixin
@@ -540,7 +541,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
            CognitiveCycleMixin,
            EventLanguageMixin, ExperienceMemoryMixin,
            GoalDiscoveryMixin, GoalExecutionMixin, GrammarInductionMixin,
-           InterventionLearningMixin,
+           IntentionModelMixin, InterventionLearningMixin,
            MemoryConsolidationMixin, MetacognitionMixin, IntrinsicMotivationMixin,
            ObjectTrackingMixin, PerspectiveModelMixin,
            PlannerMixin, PlanExecutionMixin, RuleInductionMixin,
@@ -578,6 +579,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         self.spatial_relations={}
         self.perspective_models={}
         self.situational_facts={}; self.perspective_states={}
+        self.intention_models={}; self.stated_intentions=[]
         self.drive_weights=dict(self.DEFAULT_DRIVE_WEIGHTS)
         self.mem_len=mem_len
         self.memory=defaultdict(lambda:defaultdict(int))   # 0단계: 패턴
@@ -2371,6 +2373,7 @@ class Baby(ActionSelectionMixin, EvidenceBeliefMixin, ConceptLearningMixin,
         "spatial_relations",
         "perspective_models",
         "situational_facts", "perspective_states",
+        "intention_models", "stated_intentions",
     ]
 
     def save(self):

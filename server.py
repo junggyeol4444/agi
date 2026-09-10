@@ -311,6 +311,17 @@ class Handler(BaseHTTPRequestHandler):
             b=baby.get_baby()
             self._json({"ok":True,"result":b.expected_search_location(
                 data.get("agent"), data.get("subject"), data.get("relation","location"))})
+        elif self.path=="/observe-agent-action":
+            # 반복 행동 결과에서 목표 가설을 만들되 직접 관찰 사실과 구분한다.
+            b=baby.get_baby()
+            self._json({"ok":True,"intention":b.observe_agent_action(
+                data.get("agent"), data.get("action"), data.get("before",{}),
+                data.get("after",{}), context=data.get("context"),
+                event_id=data.get("event_id"))})
+        elif self.path=="/agent-intention":
+            b=baby.get_baby()
+            self._json({"ok":True,"comparison":b.compare_stated_and_inferred_intention(
+                data.get("agent"))})
         elif self.path=="/corrections":
             # 결론이 바뀌었지만 아직 대화에서 알리지 않은 과거 답변 정정.
             word=(data.get("word") or "").strip() or None
